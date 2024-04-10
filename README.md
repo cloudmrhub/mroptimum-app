@@ -4,6 +4,10 @@
 - JobsBucket - mroptimum-jobs
 - ResultsBucket - mroptimum-results
 
+# VErsion
+1. dev nighly version
+1. v1 backend separated from front end
+
 ## APIS
 
 |Function| Route/Event | Description |
