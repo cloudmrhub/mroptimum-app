@@ -4,7 +4,7 @@
 #Platform:
 CORTEX=cancelit-env-1.eba-pmamcuv5.us-east-1.elasticbeanstalk.com
 CLOUDMRSTACK=cmr
-_NN_=2009jkj
+_NN_=friday63112april24
 PROFILE=https://ewjjq013u0.execute-api.us-east-1.amazonaws.com/profile
 CLOUDMRCMR=https://ewjjq013u0.execute-api.us-east-1.amazonaws.com/
 GITTOKENS=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
