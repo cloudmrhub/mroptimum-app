@@ -24,7 +24,15 @@ DataBucketPName=xx--mrod-$_NN_
 FailedBucketPName=xx--mrof-$_NN_
 
 
-aws s3api create-bucket --bucket $BUCKET_NAME --region $REGION 
+#check if $BUCKET_NAME exists
+aws s3api head-bucket --bucket $BUCKET_NAME --region $REGION
+if [ $? -eq 0 ]; then
+    echo "Bucket exists"
+else
+    aws s3api create-bucket --bucket $BUCKET_NAME --region $REGION 
+fi
+
+
 
 sam build -t Backend/template.yaml --use-container --build-dir build/back 
 # sam package --template-file build/back/template.yaml --s3-bucket $BUCKET_NAME --output-template-file build/back/packaged-template.yaml
@@ -53,7 +61,8 @@ PARAMS="GithubToken=$GITTOKENS ApiToken=$APITOKEN CloudmrServer=$CLOUDMR_SERVER 
 
 
 sam build -t Frontend/template.yaml --use-container --build-dir build/front
-sam deploy --template-file build/front/template.yaml --stack-name $FRONTSTACKNAME --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM --resolve-image-repos --s3-bucket $BUCKET_NAME --parameter-overrides sam deploy --template-file build/front/template.yaml --stack-name $FRONTSTACKNAME --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM --resolve-image-repos --s3-bucket $BUCKET_NAME --parameter-overrides $(echo $PARAMS)
+sam deploy --template-file build/front/template.yaml --stack-name $FRONTSTACKNAME --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM --resolve-image-repos --s3-bucket $BUCKET_NAME --parameter-overrides $PARAMS
+# sam deploy --template-file build/front/template.yaml --stack-name $FRONTSTACKNAME --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM --resolve-image-repos --s3-bucket $BUCKET_NAME --parameter-overrides $(echo $PARAMS)
 
 
 
