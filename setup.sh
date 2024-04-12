@@ -4,10 +4,10 @@
 #Platform:
 CORTEX=cancelit-env-1.eba-pmamcuv5.us-east-1.elasticbeanstalk.com
 CLOUDMRSTACK=cmr
-_NN_=6334d
+_NN_=2009jkj
 PROFILE=https://ewjjq013u0.execute-api.us-east-1.amazonaws.com/profile
 CLOUDMRCMR=https://ewjjq013u0.execute-api.us-east-1.amazonaws.com/
-
+GITTOKENS=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
 
 # Create a bucket
 BUCKET_NAME=mro-mainbucket-$_NN_
@@ -108,7 +108,8 @@ fi
 MRO_SERVER=$(aws cloudformation describe-stacks --stack-name $BACKSTACKNAME --query "Stacks[0].Outputs[?OutputKey=='MROApi'].OutputValue" --output text)
 
 
-GITTOKENS=$CMRGITTOKEN
+# GITTOKENS=$CMRGITTOKEN
+
 
 PARAMS="GithubToken=$GITTOKENS ApiToken=$APITOKEN CloudmrServer=$CLOUDMR_SERVER MroServer=$MRO_SERVER ProfileServer=$PROFILE_SERVER ApiUrl=aa"
 
@@ -120,3 +121,4 @@ sam deploy --template-file build/front/template.yaml --stack-name $FRONTSTACKNAM
 
 FRONTEND_URL=$(aws cloudformation describe-stacks --stack-name $FRONTSTACKNAME --query "Stacks[0].Outputs[?OutputKey=='AmplifyAppDomain'].OutputValue" --output text)
 
+echo "Frontend URL is $FRONTEND_URL"
