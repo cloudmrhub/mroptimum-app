@@ -1,14 +1,19 @@
 
 
 
-#Platform:
+#random part in the stack name
+_NN_=friday63112april24
+
+# to be filled by cmr
+
 CORTEX=cancelit-env-1.eba-pmamcuv5.us-east-1.elasticbeanstalk.com
 CLOUDMRSTACK=cmr
-_NN_=friday63112april24
+
 PROFILE=https://ewjjq013u0.execute-api.us-east-1.amazonaws.com/profile
 CLOUDMRCMR=https://ewjjq013u0.execute-api.us-east-1.amazonaws.com/
 
 GITTOKENS=$CMRGITTOKEN
+
 
 # Create a bucket
 BUCKET_NAME=mro-mainbucket-$_NN_
@@ -19,7 +24,6 @@ FRONTSTACKNAME=MROFrontstack-$_NN_
 USAGEPLANSTACKNAME=USAGEPLAN-$_NN_
 
 
-#_NN_ names
 
 
 JobsBucketPName=xx--mroj-$_NN_
