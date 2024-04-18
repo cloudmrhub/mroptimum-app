@@ -1,6 +1,6 @@
 
 
-aws configure
+#aws configure
 
 
 #check if theres a parameter passed
@@ -12,7 +12,8 @@ if [ $# -eq 0 ]
     echo "Your git token is: $GITTOKENS"
 fi
 
-GITTOKENS= $1
+# GITTOKENS=$1
+GITTOKENS=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
 
 #random part in the stack name
 _NN_=yuelong-stack
