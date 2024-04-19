@@ -1,8 +1,22 @@
 
 
+#aws configure
+
+
+#check if theres a parameter passed
+if [ $# -eq 0 ]
+  then
+    echo "No arguments supplied"
+    exit 1
+    read -p "Please enter your git token: " GITTOKENS
+    echo "Your git token is: $GITTOKENS"
+fi
+
+# GITTOKENS=$1
+GITTOKENS=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
 
 #random part in the stack name
-_NN_=friday63112april24
+_NN_=yuelong-stack
 
 # to be filled by cmr
 
@@ -12,7 +26,8 @@ CLOUDMRSTACK=cmr
 PROFILE=https://ewjjq013u0.execute-api.us-east-1.amazonaws.com/profile
 CLOUDMRCMR=https://ewjjq013u0.execute-api.us-east-1.amazonaws.com/
 
-GITTOKENS=$CMRGITTOKEN
+
+
 
 
 # Create a bucket
@@ -127,3 +142,6 @@ sam deploy --template-file build/front/template.yaml --stack-name $FRONTSTACKNAM
 FRONTEND_URL=$(aws cloudformation describe-stacks --stack-name $FRONTSTACKNAME --query "Stacks[0].Outputs[?OutputKey=='AmplifyAppDomain'].OutputValue" --output text)
 
 echo "Frontend URL is $FRONTEND_URL"
+
+
+# automatic deployment (aws amplify update-branch --app-id $APP_ID --branch-name main --environment-variables TOKEN-URL=$API_URL,CLOUDMR_SERVER=$CLOUDMR_SERVER,MRO_SERVER=$MRO_SERVER,PROFILE_SERVER=$PROFILE_SERVER,API_TOKEN=$API_TOKEN)
