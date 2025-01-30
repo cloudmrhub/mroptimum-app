@@ -262,7 +262,6 @@ Resources:
               
       Layers:
         - !Ref RequestsLayerARN
-<<<<<<< HEAD:backend/template.yaml
 
   DeleteJobFunction:
     Type: AWS::Serverless::Function
@@ -294,8 +293,6 @@ Resources:
               Authorizer: UserAuthorizer
       Layers:
         - !Ref RequestsLayerARN
-=======
->>>>>>> 472e5d62b3411cff1c77d298fceea61dbfc2ffee:Backend/template.yaml
 
   RunJobFunction:
     Type: AWS::Serverless::Function
@@ -713,11 +710,8 @@ Outputs:
     Value: !Ref StageName
     Export:
       Name: !Sub "${AWS::StackName}-StageName"
-<<<<<<< HEAD:backend/template.yaml
   DeleteJobApi:
     Description: "HTTP API endpoint files for delete a job in database"
     Value: !Sub "https://${CMAPI}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/pipeline/{id}"
-=======
->>>>>>> 472e5d62b3411cff1c77d298fceea61dbfc2ffee:Backend/template.yaml
 
 
