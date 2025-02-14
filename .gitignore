@@ -253,3 +253,4 @@ Frontend/.env
 Frontend/*.toml
 
 Backend/samconfig.toml
+run-job-python-FG.zip

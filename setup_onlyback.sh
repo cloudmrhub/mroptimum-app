@@ -29,6 +29,7 @@ JobsBucketPName=mroj$_NN_
 ResultsBucketPName=mror$_NN_
 DataBucketPName=mrod$_NN_
 FailedBucketPName=mrof$_NN_
+LongJobsBucketPName=mrol$_NN_
 
 
 #check if $BUCKET_NAME exists
@@ -48,6 +49,12 @@ echo "common resources deployed"
 
 # REQUESTS_LAYER=$(aws cloudformation describe-stacks --stack-name $COMMONSTACKNAME --query "Stacks[0].Outputs[?OutputKey=='RequestsARN'].OutputValue" --output text)
 # check if API_ID exists
+
+#deploy fargate
+#check if the vpc exists
+
+VPC_ID=$(aws cloudformation list-exports --query "Exports[?Name=='VPC'].Value" --output text)
+
 
 
 echo "Building backend resources"

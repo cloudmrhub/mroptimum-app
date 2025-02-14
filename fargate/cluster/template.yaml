@@ -1,0 +1,370 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+# Description: >
+#   MROptimum SAM App
+
+#   This SAM template describes the entire MROptimum AWS Architecture
+
+
+Parameters:
+  CortexHost: 
+    Type: String
+    Description: cm cortex
+    Default: 'cancelit-env-1.eba-pmamcuv5.us-east-1.elasticbeanstalk.com'
+  JobsBucketPName:
+    Type: String
+    Description: jobs bucket
+    Default: 'test-fg-mroj'
+  ResultsBucketName:
+    Description: "The name of the existing ResultsBucket"
+    Type: String
+
+  FailedBucketName:
+    Description: "The name of the existing FailedBucket"
+    Type: String
+  VpcSubnets:
+    Type: CommaDelimitedList
+    Description: List of VPC subnet IDs for Fargate tasks.
+  VpcSecurityGroups:
+    Type: CommaDelimitedList
+  SourceBucket:
+    Type: String
+    Description: S3 bucket containing your source zip file (which includes run-job-python-FG).
+    Default: source-docker-mroptimum
+  SourceKey:
+    Type: String
+    Description: S3 key (path) to your source zip file.
+    Default: run-job-python-FG.zip
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Architectures:
+    - x86_64
+    Environment:
+      Variables:
+        JobBucketName: !Ref JobsBucketPName
+        ResultsBucketName: !Ref ResultsBucketName
+        FailedBucketName: !Ref FailedBucketName
+        Host: !Ref CortexHost
+        CloudMRApiUrl: !Sub https://${CortexHost}/api
+        PipelineScheduler: !Sub https://${CortexHost}/api/pipeline/request
+        PipelineCompleted: !Sub https://${CortexHost}/api/pipeline/completed
+        PipelineFailed: !Sub https://${CortexHost}/api/pipeline/failed
+        deleteDataAPI: !Sub https://${CortexHost}/api/data/delete 
+        updateDataAPI: !Sub https://${CortexHost}/api/data/update 
+        PipelineDeleteAPI: !Sub https://${CortexHost}/api/pipeline/delete
+
+
+Resources:
+
+  JobsBucket:
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Ref JobsBucketPName
+      CorsConfiguration:
+        CorsRules:
+        - AllowedHeaders:
+            - "*"
+          AllowedMethods:
+            - GET
+            - PUT
+            - HEAD
+            - POST
+            - DELETE
+          AllowedOrigins:
+            - "*"
+ 
+  MyEcsCluster:
+    Type: AWS::ECS::Cluster
+
+
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ECSExecutionS3ECRPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${SourceBucket}/run-job-python-FG.zip"
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: "*"
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ECSTaskAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [ "s3:*" ]
+                Resource: "*"
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      # Remove explicit RepositoryName to allow CloudFormation-generated name
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action:
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - ecr:BatchCheckLayerAvailability
+              
+  MyFargateTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: "mroptimum-processor"
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "4096"
+      Memory: "10240"
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: processor
+          Image: !Sub "${ECRRepository.RepositoryUri}:latest"
+          Essential: true
+          Environment:
+            - Name: ResultsBucketName
+              Value: !Ref ResultsBucketName
+            - Name: FailedBucketName
+              Value: !Ref FailedBucketName
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: /ecs/mroptimum-processor
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: processor
+
+      Tags:
+        - Key: "app"
+          Value: "mroptimum"
+        - Key: "env"
+          Value: "prod"
+        - Key: "team"
+          Value: "cloudmrhub"
+        - Key: "version"
+          Value: "v1"
+        - Key: "costcenter"
+          Value: "MROFARFATE"
+
+
+
+
+  ########################################
+  # CodeBuild Project (to build the Fargate image)
+  ########################################
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildBasePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # CloudWatch Logs permissions
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+
+              # ECR permissions for pulling/pushing images
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: "*"
+
+              # S3 permissions for source code access
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub "arn:aws:s3:::${SourceBucket}/*"
+
+        # Secrets Manager permissions for Docker Hub credentials
+        - PolicyName: CodeBuildSecretsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:dockerhub-credentials-*"
+
+
+
+
+  BuildProcessorImage:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: mroptimum-processor-build
+      Environment:
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/standard:6.0
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: DOCKERHUB_USERNAME
+            Value: !Sub '{{resolve:secretsmanager:dockerhub-credentials:SecretString:dockerhub_username}}'
+          - Name: DOCKERHUB_PASSWORD
+            Value: !Sub '{{resolve:secretsmanager:dockerhub-credentials:SecretString:dockerhub_password}}'
+          - Name: REPOSITORY_URI
+            Value: !GetAtt ECRRepository.RepositoryUri
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS  # Corrected artifact type
+      Source:
+        Type: S3
+        Location: !Join [ "/", [ !Ref SourceBucket, !Ref SourceKey ] ]
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - echo "Logging in to Docker Hub..."
+                - docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
+                - echo "Logging in to Amazon ECR..."
+                - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI 
+            build:
+              commands:
+                - echo Building the Docker image from run-job-python-FG...
+                - cd fargate/cluster/run-job-python-mroptimum-fg
+                - docker build -t mroptimum-processor .
+                - docker tag mroptimum-processor:latest $REPOSITORY_URI:latest
+            post_build:
+              commands:
+                - echo Pushing the Docker image...
+                - docker push $REPOSITORY_URI:latest
+          # Remove the artifacts section from BuildSpec
+  ########################################
+  # Lambda Trigger to Start the Fargate Task
+  ########################################
+
+
+  MroptimumLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/ecs/mroptimum-processor"
+      RetentionInDays: 14
+
+
+  TriggerFargateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: >
+        This lightweight function is triggered by any new object in the JobsBucket.
+        It starts an ECS Fargate task using the image built from run-job-python-FG.
+      Runtime: python3.10
+      Handler: index.handler
+      Timeout: 60
+      MemorySize: 256
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            Effect: Allow
+            Action:
+              - ecs:RunTask
+              - iam:PassRole
+            Resource: "*"
+      Environment:
+        Variables:
+          CLUSTER: !Ref MyEcsCluster
+          TASK_DEFINITION: !Ref MyFargateTaskDefinition
+          SUBNETS: !Join [ ",", !Ref VpcSubnets ]
+          SECURITY_GROUPS: !Join [ ",", !Ref VpcSecurityGroups ]
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket: !Ref JobsBucket
+            Events: s3:ObjectCreated:*
+      InlineCode: |
+        import os, json, boto3
+        def handler(event, context):
+            print("Received event: " + json.dumps(event))
+            ecs = boto3.client('ecs')
+            response = ecs.run_task(
+                cluster=os.environ['CLUSTER'],
+                launchType='FARGATE',
+                taskDefinition=os.environ['TASK_DEFINITION'],
+                networkConfiguration={
+                    'awsvpcConfiguration': {
+                        'subnets': os.environ['SUBNETS'].split(','),
+                        'securityGroups': os.environ['SECURITY_GROUPS'].split(','),
+                        'assignPublicIp': 'ENABLED'
+                    }
+                },
+                overrides={
+                    'containerOverrides': [{
+                        'name': 'processor',
+                        'environment': [
+                            {
+                                'name': 'FILE_EVENT',
+                                'value': json.dumps(event)
+                            }
+                        ]
+                    }]
+                }
+            )
+            return {
+                'statusCode': 200,
+                'body': json.dumps(response,default=str)
+            }
+
+Outputs:
+  JobsBucket:
+    Description: "Jobs Bucket"
+    Value: !Ref JobsBucket
+  TriggerFargateFunction:
+    Description: "Trigger Fargate Function"
+    Value: !GetAtt TriggerFargateFunction.Arn

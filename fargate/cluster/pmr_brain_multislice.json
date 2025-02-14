@@ -1,0 +1,79 @@
+{
+    "task": {
+        "version": "v0",
+        "acquisition": 2,
+        "type": "SNR",
+        "id": 2,
+        "name": "PMR",
+        "options": {
+            "NR": 20,
+            "reconstructor": {
+                "type": "recon",
+                "name": "Sense",
+                "id": 3,
+                "options": {
+                    "signal": {
+                        "type": "file",
+                        "id": 265,
+                        "options": {
+                            "type": "s3",
+                            "filename": "26092019_meas_MID01491_FID318491_gre_snr_rep2.dat",
+                            "options": {},
+                            "multiraid": false,
+                            "bucket": "mytestcmr",
+                            "key": "26092019_meas_MID01491_FID318491_gre_snr_rep2.dat",
+                            "vendor": "Siemens"
+                        }
+                    },
+                    "noise": {
+                        "type": "file",
+                        "id": 266,
+                        "options": {
+                            "type": "s3",
+                            "filename": "26092019_meas_MID01493_FID318493_gre_noise.dat",
+                            "options": {},
+                            "multiraid": false,
+                            "bucket": "mytestcmr",
+                            "key": "26092019_meas_MID01493_FID318493_gre_noise.dat",
+                            "vendor": "Siemens"
+                        }
+                    },
+                    "sensitivityMap": {
+                        "type": "sensitivityMap",
+                        "id": 1,
+                        "name": "inner",
+                        "options": {
+                            "sensitivityMapSource": {
+                                "type": "file",
+                                "options": {
+                                    "type": "local",
+                                    "filename": "/youtpath/to/the/file.dat",
+                                    "options": {}
+                                }
+                            },
+                            "sensitivityMapMethod": "inner"
+                        }
+                    },
+                    "decimate": true,
+                    "accelerations": [
+                        1,
+                        2
+                    ],
+                    "acl": [
+                        null,
+                        24
+                    ]
+                }
+            }
+        }
+    },
+    "output": {
+        "coilsensitivity": true,
+        "gfactor": true,
+        "matlab": true
+    },
+    "application": "MR Optimum",
+    "alias": "meas_MID00909_FID256218_GRE_cor_50cm.dat-ac",
+    "pipeline": "9ca13672-4129-3797-be8c-1dbd430a3d54",
+    "token": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwOlwvXC9jYW5jZWxpdC1lbnYtMS5lYmEtcG1hbWN1djUudXMtZWFzdC0xLmVsYXN0aWNiZWFuc3RhbGsuY29tXC9hcGlcL2F1dGhcL2xvZ2luIiwiaWF0IjoxNzM3NzU4MjU3LCJleHAiOjE3Mzc4NDQ2NTcsIm5iZiI6MTczNzc1ODI1NywianRpIjoibVppb3BycjM1UWZPQWVFciIsInN1YiI6OTk5OSwicHJ2IjoiODdlMGFmMWVmOWZkMTU4MTJmZGVjOTcxNTNhMTRlMGIwNDc1NDZhYSJ9.fTsBk6mpkjNjVEF-xPntshG54lMzPMw1dXGGEhRyLPY"
+}
