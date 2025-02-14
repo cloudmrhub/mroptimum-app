@@ -20,7 +20,9 @@ def getHeadersForRequestsWithToken(token):
     headers = getHeadersForRequests()
     headers["Authorization"]= token
     return headers
-    
+
+import uuid
+
 def lambda_handler(event, context):
     # connect to the s3
     s3 = boto3.client("s3")
@@ -28,8 +30,9 @@ def lambda_handler(event, context):
     bucket_name = event["Records"][0]["s3"]["bucket"]["name"]
     file_key = event["Records"][0]["s3"]["object"]["key"]
     #save zip  file to local
-    fj="/tmp/a.zip"
+    #create a random name 
 
+    fj = f"/tmp/{uuid.uuid4()}.zip"
     s3 = boto3.resource("s3")
     s3.Bucket(bucket_name).download_file(file_key,fj)
     archive = zipfile.ZipFile(fj, 'r')
@@ -58,7 +61,7 @@ def lambda_handler(event, context):
     }
 
     
-    
+    print("bucket_name",bucket_name)
 
     if bucket_name==mroptimum_result:
         url=f'{pipelineAPI}/{pipelineid}'

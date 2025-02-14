@@ -15,6 +15,10 @@ Parameters:
     Type: String
     Description: jobs bucket
     Default: 'mroj'
+  LongJobsBucketName:
+    Type: String
+    Description: long jobs bucket
+    Default: 'test-fg-mroj'
   ResultsBucketPName:
     Type: String
     Description: results bucket
@@ -48,6 +52,7 @@ Globals:
     Environment:
       Variables:
         JobBucketName: !Ref JobsBucketPName
+        LongJobBucketName: !Ref LongJobsBucketName
         DataBucketName: !Ref DataBucketPName
         ResultsBucketName: !Ref ResultsBucketPName
         FailedBucketName: !Ref FailedBucketPName
@@ -249,6 +254,9 @@ Resources:
       Policies:
         - S3FullAccessPolicy:
             BucketName: !Ref JobsBucket
+        - S3FullAccessPolicy:
+            BucketName: !Ref LongJobsBucketName
+
       Events:
         PostJobApiEvent:
           Type: Api
