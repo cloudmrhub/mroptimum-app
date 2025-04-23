@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Ark stack that exports UpdateJobFunction from compute stack
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+
+  FailedBucketName:
+    Type: String
+
+Resources:
+  DummyResource:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+Outputs:
+  UpdateJobFunctionArn:
+    Value: !ImportValue MROComputeStack-UpdateJobFunctionArn
+    Export:
+      Name: !Sub "${AWS::StackName}-UpdateJobFunctionArn"

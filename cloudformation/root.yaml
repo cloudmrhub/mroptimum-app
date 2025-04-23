@@ -1,0 +1,10 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Root stack for MROptimum nested architecture
+
+Resources:
+  CommonStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./common.yaml
+      Parameters:
+        Environment: dev

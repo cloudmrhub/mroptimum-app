@@ -1,0 +1,55 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Compute layer with run-job and update-job functions
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+
+  SequencesBucketName:
+    Type: String
+
+Resources:
+  RunJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "RunJobFunction-${Environment}"
+      CodeUri: ../src/run-job-python/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref SequencesBucketName
+      Events:
+        RunJobInvoke:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)  # Can be removed later
+            Enabled: false
+
+  UpdateJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "UpdateJobFunction-${Environment}"
+      CodeUri: ../src/update-job-python/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref SequencesBucketName
+
+Outputs:
+  RunJobFunctionArn:
+    Value: !GetAtt RunJobFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RunJobFunctionArn"
+
+  UpdateJobFunctionArn:
+    Value: !GetAtt UpdateJobFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-UpdateJobFunctionArn"

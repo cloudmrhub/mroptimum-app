@@ -1,0 +1,9 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "MROApiStack"
+s3_prefix = "MROApiStack"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=\"dev\" RequestsLayerARN=\"\" SequencesBucketName=\"mro-sequences-dev-us-east-1\""
+image_repositories = []

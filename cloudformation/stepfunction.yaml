@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: State machine to orchestrate job execution in MR Optimum
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+
+  RunJobFunctionArn:
+    Type: String
+
+  UpdateJobFunctionArn:
+    Type: String
+
+Resources:
+  JobOrchestrationStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub "JobStateMachine-${Environment}"
+      Definition:
+        StartAt: RunJob
+        States:
+          RunJob:
+            Type: Task
+            Resource: !Ref RunJobFunctionArn
+            Next: UpdateJob
+          UpdateJob:
+            Type: Task
+            Resource: !Ref UpdateJobFunctionArn
+            End: true
+      Role:
+        Fn::GetAtt: StepFunctionExecutionRole.Arn
+
+  StepFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "StepFunctionExecutionRole-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StateMachineInvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Ref RunJobFunctionArn
+                  - !Ref UpdateJobFunctionArn
+
+Outputs:
+  StepFunctionArn:
+    Value: !Ref JobOrchestrationStateMachine
+    Export:
+      Name: !Sub "${AWS::StackName}-StepFunctionArn"

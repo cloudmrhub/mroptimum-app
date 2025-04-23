@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Common resources - buckets and shared layers
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+
+Resources:
+  SequencesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "mro-sequences-${Environment}-${AWS::Region}"
+  
+  FieldsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "mro-fields-${Environment}-${AWS::Region}"
+
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "mro-results-${Environment}-${AWS::Region}"
+
+  FailedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
+
+Outputs:
+  SequencesBucketName:
+    Description: S3 bucket for sequence data
+    Value: !Ref SequencesBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-SequencesBucket"
+
+  FieldsBucketName:
+    Description: S3 bucket for field data
+    Value: !Ref FieldsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-FieldsBucket"
+
+  ResultsBucketName:
+    Description: S3 bucket for successful results
+    Value: !Ref ResultsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ResultsBucket"
+
+  FailedBucketName:
+    Description: S3 bucket for failed jobs
+    Value: !Ref FailedBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-FailedBucket"
