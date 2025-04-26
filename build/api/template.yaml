@@ -14,6 +14,10 @@ Resources:
       Name:
         Fn::Sub: MROptimumAPI-${Environment}
       StageName: prod
+      Cors:
+        AllowMethods: '''OPTIONS,POST,DELETE'''
+        AllowHeaders: '''*'''
+        AllowOrigin: '''*'''
       Auth:
         DefaultAuthorizer: LambdaTokenAuthorizer
         AddDefaultAuthorizerToCorsPreflight: false

@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Amplify hosting for MR Optimum frontend from monorepo
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: https://github.com/Agrima4/MROptimum
+
+  GitHubToken:
+    Type: String
+    NoEcho: true
+
+Resources:
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: MROFrontendApp
+      Repository: !Ref GitHubRepo
+      AccessToken: !Ref GitHubToken
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            build:
+              commands:
+                - cd frontend
+                - npm ci
+                - npm run build
+          artifacts:
+            baseDirectory: frontend/build
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - frontend/node_modules/**/*
+      EnvironmentVariables:
+        - Name: REACT_APP_API_URL
+          Value: https://f7wldcxuzb.execute-api.us-east-1.amazonaws.com/prod
+
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: master

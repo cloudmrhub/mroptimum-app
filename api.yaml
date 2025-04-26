@@ -16,6 +16,10 @@ Resources:
     Properties:
       Name: !Sub "MROptimumAPI-${Environment}"
       StageName: prod
+      Cors:
+        AllowMethods: "'OPTIONS,POST,DELETE'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
       Auth:
         DefaultAuthorizer: LambdaTokenAuthorizer
         AddDefaultAuthorizerToCorsPreflight: false
