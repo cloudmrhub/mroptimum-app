@@ -32,9 +32,9 @@ Resources:
         PipelineCompleted: !GetAtt CommonStack.Outputs.PipelineCompletedApi
         PipelineFailed: !GetAtt CommonStack.Outputs.PipelineFailedApi
         PipelineScheduler: !GetAtt CommonStack.Outputs.PipelineSchedulerApi
-        ResultsBucketName: !GetAtt CommonStack.Outputs.ResultsBucket
-        FailedBucketName: !GetAtt CommonStack.Outputs.FailedBucket
         Host: !GetAtt CommonStack.Outputs.Host
+        ResultsBucketName: !Sub "mro-results-${Environment}-${AWS::Region}"
+        FailedBucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
 
   StepFunctionStack:
     Type: AWS::Serverless::Application
@@ -51,8 +51,8 @@ Resources:
       Location: ../api.yaml
       Parameters:
         Environment: !Ref Environment
-        SequencesBucketName: !GetAtt CommonStack.Outputs.SequencesBucket
-        StateMachineArn: !GetAtt StepFunctionStack.Outputs.StepFunctionArn
+        SequencesBucketName: !Sub "mro-results-${Environment}-${AWS::Region}"
+        StateMachineArn: !GetAtt StepFunctionStack.Outputs.StateMachineArn
 
   ArkStack:
     Type: AWS::Serverless::Application
@@ -60,7 +60,7 @@ Resources:
       Location: ark.yaml
       Parameters:
         Environment: !Ref Environment
-        FailedBucketName: !GetAtt CommonStack.Outputs.FailedBucket
+        FailedBucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
         UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
 
   FrontendStack:
@@ -69,26 +69,6 @@ Resources:
       Location: frontend.yaml
       Parameters:
         Environment: !Ref Environment
-        FailedBucketName: !GetAtt CommonStack.Outputs.FailedBucket
+        FailedBucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
         UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
-
-Outputs:
-  RunJobFunctionArn:
-    Description: ARN of the RunJob Lambda
-    Value: !GetAtt ComputeStack.Outputs.RunJobFunctionArn
-
-  UpdateJobFunctionArn:
-    Description: ARN of the UpdateJob Lambda
-    Value: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
-
-  StateMachineArn:
-    Description: ARN of the State Machine
-    Value: !GetAtt StepFunctionStack.Outputs.StepFunctionArn
-
-  PipelineCompletedApi:
-    Description: Endpoint for pipeline completed callback
-    Value: !GetAtt CommonStack.Outputs.PipelineCompletedApi
-
-  ResultsBucket:
-    Description: Name of the results S3 bucket
-    Value: !GetAtt CommonStack.Outputs.ResultsBucket
+        

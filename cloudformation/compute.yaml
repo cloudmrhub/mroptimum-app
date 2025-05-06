@@ -23,7 +23,7 @@ Resources:
   RunJobFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri:  ../src/run-job-python/
+      CodeUri: ../src/run-job-python/
       Handler: app.lambda_handler
       Runtime: python3.9
       Timeout: 900
@@ -39,7 +39,7 @@ Resources:
   UpdateJobFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri:  ../src/update-job-python/
+      CodeUri: ../src/update-job-python/
       Handler: app.lambda_handler
       Runtime: python3.9
       Timeout: 300
@@ -54,8 +54,14 @@ Resources:
           Host: !Ref Host
       Policies:
         - AWSLambdaBasicExecutionRole
-      FunctionUrlConfig:
-        AuthType: NONE
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource:
+                - !Sub arn:aws:s3:::${ResultsBucketName}/*
+                - !Sub arn:aws:s3:::${FailedBucketName}/*
 
 Outputs:
   RunJobFunctionArn:
