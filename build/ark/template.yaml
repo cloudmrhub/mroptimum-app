@@ -1,0 +1,26 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Ark stack that exports UpdateJobFunction ARN and allows S3 invocation
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  FailedBucketName:
+    Type: String
+Resources:
+  AllowS3Invoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: MROComputeStack-UpdateJobFunctionArn
+      Principal: s3.amazonaws.com
+      SourceArn:
+        Fn::Sub: arn:aws:s3:::${FailedBucketName}
+Outputs:
+  UpdateJobFunctionArn:
+    Value:
+      Fn::ImportValue: MROComputeStack-UpdateJobFunctionArn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-UpdateJobFunctionArn

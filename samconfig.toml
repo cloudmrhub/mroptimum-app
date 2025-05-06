@@ -1,9 +1,13 @@
 version = 0.1
-[default.deploy.parameters]
-stack_name = "MROApiStack"
-s3_prefix = "MROApiStack"
+
+[default.deploy]
+stack_name = "MRORootStack"
+s3_bucket = "mro-deploy-bucket-agrima"
+s3_prefix = "mro"
 region = "us-east-1"
-confirm_changeset = true
-capabilities = "CAPABILITY_IAM"
-parameter_overrides = "Environment=\"dev\" RequestsLayerARN=\"\" SequencesBucketName=\"mro-sequences-dev-us-east-1\""
-image_repositories = []
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
+confirm_changeset = false
+fail_on_empty_changeset = false
+resolve_s3 = true
+template_file = "cloudformation/root.yaml"
+

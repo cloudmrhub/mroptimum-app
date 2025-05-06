@@ -1,5 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Common resources - buckets and shared layers
+Transform: AWS::Serverless-2016-10-31
+Description: Common resources - buckets, shared APIs, and host for MR Optimum
 
 Parameters:
   Environment:
@@ -11,7 +12,7 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "mro-sequences-${Environment}-${AWS::Region}"
-  
+
   FieldsBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -27,27 +28,58 @@ Resources:
     Properties:
       BucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
 
+  PipelineCompletedApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub "pipeline-completed-api-${Environment}"
+
+  PipelineFailedApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub "pipeline-failed-api-${Environment}"
+
+  PipelineSchedulerApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub "pipeline-scheduler-api-${Environment}"
+
 Outputs:
-  SequencesBucketName:
-    Description: S3 bucket for sequence data
+  SequencesBucket:
     Value: !Ref SequencesBucket
     Export:
-      Name: !Sub "${AWS::StackName}-SequencesBucket"
+      Name: CommonStack-SequencesBucket
 
-  FieldsBucketName:
-    Description: S3 bucket for field data
+  FieldsBucket:
     Value: !Ref FieldsBucket
     Export:
-      Name: !Sub "${AWS::StackName}-FieldsBucket"
+      Name: CommonStack-FieldsBucket
 
-  ResultsBucketName:
-    Description: S3 bucket for successful results
+  ResultsBucket:
     Value: !Ref ResultsBucket
     Export:
-      Name: !Sub "${AWS::StackName}-ResultsBucket"
+      Name: CommonStack-ResultsBucket
 
-  FailedBucketName:
-    Description: S3 bucket for failed jobs
+  FailedBucket:
     Value: !Ref FailedBucket
     Export:
-      Name: !Sub "${AWS::StackName}-FailedBucket"
+      Name: CommonStack-FailedBucket
+
+  PipelineCompletedApi:
+    Value: !Sub "${PipelineCompletedApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: CommonStack-PipelineCompletedApi
+
+  PipelineFailedApi:
+    Value: !Sub "${PipelineFailedApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: CommonStack-PipelineFailedApi
+
+  PipelineSchedulerApi:
+    Value: !Sub "${PipelineSchedulerApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: CommonStack-PipelineSchedulerApi
+
+  Host:
+    Value: !Sub "${PipelineCompletedApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: CommonStack-Host

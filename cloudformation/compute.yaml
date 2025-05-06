@@ -1,55 +1,71 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Compute layer with run-job and update-job functions
+Description: Compute functions for MR Optimum backend
 
 Parameters:
   Environment:
     Type: String
     Default: dev
-
-  SequencesBucketName:
+  PipelineCompleted:
+    Type: String
+  PipelineFailed:
+    Type: String
+  PipelineScheduler:
+    Type: String
+  ResultsBucketName:
+    Type: String
+  FailedBucketName:
+    Type: String
+  Host:
     Type: String
 
 Resources:
   RunJobFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub "RunJobFunction-${Environment}"
-      CodeUri: ../src/run-job-python/
+      CodeUri:  ../src/run-job-python/
       Handler: app.lambda_handler
       Runtime: python3.9
-      Timeout: 30
-      MemorySize: 512
-      Environment:
-        Variables:
-          BUCKET_NAME: !Ref SequencesBucketName
-      Events:
-        RunJobInvoke:
-          Type: Schedule
-          Properties:
-            Schedule: rate(5 minutes)  # Can be removed later
-            Enabled: false
+      Timeout: 900
+      MemorySize: 3008
+      PackageType: Zip
+      Architectures:
+        - x86_64
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      FunctionUrlConfig:
+        AuthType: NONE
 
   UpdateJobFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub "UpdateJobFunction-${Environment}"
-      CodeUri: ../src/update-job-python/
+      CodeUri:  ../src/update-job-python/
       Handler: app.lambda_handler
       Runtime: python3.9
-      Timeout: 15
-      MemorySize: 256
+      Timeout: 300
+      MemorySize: 512
       Environment:
         Variables:
-          BUCKET_NAME: !Ref SequencesBucketName
+          PipelineCompleted: !Ref PipelineCompleted
+          PipelineFailed: !Ref PipelineFailed
+          PipelineScheduler: !Ref PipelineScheduler
+          ResultsBucketName: !Ref ResultsBucketName
+          FailedBucketName: !Ref FailedBucketName
+          Host: !Ref Host
+      Policies:
+        - AWSLambdaBasicExecutionRole
+      FunctionUrlConfig:
+        AuthType: NONE
 
 Outputs:
   RunJobFunctionArn:
+    Description: ARN of the RunJob Lambda function
     Value: !GetAtt RunJobFunction.Arn
     Export:
-      Name: !Sub "${AWS::StackName}-RunJobFunctionArn"
+      Name: ComputeStack-RunJobFunctionArn
 
   UpdateJobFunctionArn:
+    Description: ARN of the UpdateJob Lambda function
     Value: !GetAtt UpdateJobFunction.Arn
     Export:
-      Name: !Sub "${AWS::StackName}-UpdateJobFunctionArn"
+      Name: ComputeStack-UpdateJobFunctionArn

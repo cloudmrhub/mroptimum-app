@@ -21,5 +21,5 @@ def lambda_handler(event, context):
             }
         }
 
-    print("Unauthorized ❌")
+    print("Unauthorized")
     raise Exception("Unauthorized")

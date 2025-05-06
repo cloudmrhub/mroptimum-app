@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Common resources - buckets, shared APIs, and host for MR Optimum
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+Resources:
+  SequencesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: mro-sequences-${Environment}-${AWS::Region}
+  FieldsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: mro-fields-${Environment}-${AWS::Region}
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: mro-results-${Environment}-${AWS::Region}
+  FailedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: mro-failed-${Environment}-${AWS::Region}
+  PipelineCompletedApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name:
+        Fn::Sub: pipeline-completed-api-${Environment}
+  PipelineFailedApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name:
+        Fn::Sub: pipeline-failed-api-${Environment}
+  PipelineSchedulerApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name:
+        Fn::Sub: pipeline-scheduler-api-${Environment}
+Outputs:
+  SequencesBucketName:
+    Description: S3 bucket for sequence data
+    Value:
+      Ref: SequencesBucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-SequencesBucket
+  FieldsBucketName:
+    Description: S3 bucket for field data
+    Value:
+      Ref: FieldsBucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-FieldsBucket
+  ResultsBucketName:
+    Description: S3 bucket for successful results
+    Value:
+      Ref: ResultsBucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ResultsBucket
+  FailedBucketName:
+    Description: S3 bucket for failed jobs
+    Value:
+      Ref: FailedBucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-FailedBucket
+  PipelineCompletedApi:
+    Description: API endpoint for completed pipelines
+    Value:
+      Fn::Sub: https://${PipelineCompletedApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-PipelineCompletedApi
+  PipelineFailedApi:
+    Description: API endpoint for failed pipelines
+    Value:
+      Fn::Sub: https://${PipelineFailedApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-PipelineFailedApi
+  PipelineSchedulerApi:
+    Description: API endpoint for scheduling pipelines
+    Value:
+      Fn::Sub: https://${PipelineSchedulerApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-PipelineSchedulerApi
+  Host:
+    Description: Hostname for API calls
+    Value:
+      Fn::Sub: ${PipelineCompletedApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-Host

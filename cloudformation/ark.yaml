@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Ark stack that exports UpdateJobFunction from compute stack
+Description: Ark function to handle failed results and job updates
 
 Parameters:
   Environment:
@@ -10,12 +10,36 @@ Parameters:
   FailedBucketName:
     Type: String
 
-Resources:
-  DummyResource:
-    Type: AWS::CloudFormation::WaitConditionHandle
-
-Outputs:
   UpdateJobFunctionArn:
-    Value: !ImportValue MROComputeStack-UpdateJobFunctionArn
-    Export:
-      Name: !Sub "${AWS::StackName}-UpdateJobFunctionArn"
+    Type: String
+
+Resources:
+  ArkFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "ark-handler-${Environment}"
+      CodeUri: ../src/configure-bucket-notification/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          FAILED_BUCKET: !Ref FailedBucketName
+          UPDATE_JOB_ARN: !Ref UpdateJobFunctionArn
+          ENVIRONMENT: !Ref Environment
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !Ref UpdateJobFunctionArn
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub "arn:aws:s3:::${FailedBucketName}/*"
+      FunctionUrlConfig:
+        AuthType: NONE

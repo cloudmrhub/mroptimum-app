@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Compute functions for MR Optimum backend
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+Resources:
+  RunJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: RunJobFunction
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 900
+      MemorySize: 3008
+      PackageType: Zip
+      Architectures:
+      - x86_64
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      FunctionUrlConfig:
+        AuthType: NONE
+    Metadata:
+      SamResourceId: RunJobFunction
+  UpdateJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: UpdateJobFunction
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          PipelineCompleted:
+            Fn::ImportValue: MROCommonStack-PipelineCompletedApi
+          PipelineFailed:
+            Fn::ImportValue: MROCommonStack-PipelineFailedApi
+          PipelineScheduler:
+            Fn::ImportValue: MROCommonStack-PipelineSchedulerApi
+          ResultsBucketName:
+            Fn::ImportValue: MROCommonStack-ResultsBucket
+          FailedBucketName:
+            Fn::ImportValue: MROCommonStack-FailedBucket
+          Host:
+            Fn::ImportValue: MROCommonStack-Host
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      FunctionUrlConfig:
+        AuthType: NONE
+    Metadata:
+      SamResourceId: UpdateJobFunction
+Outputs:
+  RunJobFunctionArn:
+    Value:
+      Fn::GetAtt:
+      - RunJobFunction
+      - Arn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-RunJobFunctionArn
+  UpdateJobFunctionArn:
+    Value:
+      Fn::GetAtt:
+      - UpdateJobFunction
+      - Arn
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-UpdateJobFunctionArn

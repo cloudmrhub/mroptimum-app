@@ -1,10 +1,94 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Root stack for MROptimum nested architecture
+Transform: AWS::Serverless-2016-10-31
+Description: MR Optimum Modular Root Stack using AWS::Serverless::Application
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 512
+    Runtime: python3.9
+    Architectures: [x86_64]
 
 Resources:
+
   CommonStack:
-    Type: AWS::CloudFormation::Stack
+    Type: AWS::Serverless::Application
     Properties:
-      TemplateURL: ./common.yaml
+      Location: common.yaml
       Parameters:
-        Environment: dev
+        Environment: !Ref Environment
+
+  ComputeStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: compute.yaml
+      Parameters:
+        Environment: !Ref Environment
+        PipelineCompleted: !GetAtt CommonStack.Outputs.PipelineCompletedApi
+        PipelineFailed: !GetAtt CommonStack.Outputs.PipelineFailedApi
+        PipelineScheduler: !GetAtt CommonStack.Outputs.PipelineSchedulerApi
+        ResultsBucketName: !GetAtt CommonStack.Outputs.ResultsBucket
+        FailedBucketName: !GetAtt CommonStack.Outputs.FailedBucket
+        Host: !GetAtt CommonStack.Outputs.Host
+
+  StepFunctionStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: stepfunction.yaml
+      Parameters:
+        Environment: !Ref Environment
+        RunJobFunctionArn: !GetAtt ComputeStack.Outputs.RunJobFunctionArn
+        UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
+
+  APIStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: ../api.yaml
+      Parameters:
+        Environment: !Ref Environment
+        SequencesBucketName: !GetAtt CommonStack.Outputs.SequencesBucket
+        StateMachineArn: !GetAtt StepFunctionStack.Outputs.StepFunctionArn
+
+  ArkStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: ark.yaml
+      Parameters:
+        Environment: !Ref Environment
+        FailedBucketName: !GetAtt CommonStack.Outputs.FailedBucket
+        UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
+
+  FrontendStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: frontend.yaml
+      Parameters:
+        Environment: !Ref Environment
+        FailedBucketName: !GetAtt CommonStack.Outputs.FailedBucket
+        UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
+
+Outputs:
+  RunJobFunctionArn:
+    Description: ARN of the RunJob Lambda
+    Value: !GetAtt ComputeStack.Outputs.RunJobFunctionArn
+
+  UpdateJobFunctionArn:
+    Description: ARN of the UpdateJob Lambda
+    Value: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
+
+  StateMachineArn:
+    Description: ARN of the State Machine
+    Value: !GetAtt StepFunctionStack.Outputs.StepFunctionArn
+
+  PipelineCompletedApi:
+    Description: Endpoint for pipeline completed callback
+    Value: !GetAtt CommonStack.Outputs.PipelineCompletedApi
+
+  ResultsBucket:
+    Description: Name of the results S3 bucket
+    Value: !GetAtt CommonStack.Outputs.ResultsBucket

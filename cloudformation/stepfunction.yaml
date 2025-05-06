@@ -29,8 +29,7 @@ Resources:
             Type: Task
             Resource: !Ref UpdateJobFunctionArn
             End: true
-      Role:
-        Fn::GetAtt: StepFunctionExecutionRole.Arn
+      Role: !GetAtt StepFunctionExecutionRole.Arn
 
   StepFunctionExecutionRole:
     Type: AWS::IAM::Role
@@ -58,6 +57,7 @@ Resources:
 
 Outputs:
   StepFunctionArn:
+    Description: ARN of the JobOrchestration state machine
     Value: !Ref JobOrchestrationStateMachine
     Export:
-      Name: !Sub "${AWS::StackName}-StepFunctionArn"
+      Name: StepFunctionStack-StepFunctionArn

@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: API Gateway and job control functions for MR Optimum
+Description: API functions for MR Optimum
 
 Parameters:
   Environment:
@@ -10,100 +10,31 @@ Parameters:
   SequencesBucketName:
     Type: String
 
+  StateMachineArn:
+    Type: String
+
 Resources:
-  CMAPI:
-    Type: AWS::Serverless::Api
-    Properties:
-      Name: !Sub "MROptimumAPI-${Environment}"
-      StageName: prod
-      Cors:
-        AllowMethods: "'OPTIONS,POST,DELETE'"
-        AllowHeaders: "'*'"
-        AllowOrigin: "'*'"
-      Auth:
-        DefaultAuthorizer: LambdaTokenAuthorizer
-        AddDefaultAuthorizerToCorsPreflight: false
-        Authorizers:
-          LambdaTokenAuthorizer:
-            FunctionArn: !GetAtt UserAuthorizerFunction.Arn
-            Identity:
-              Header: Authorization
-
-  UserAuthorizerFunction:
+  ProcessSequenceFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub "UserAuthorizerFunction-${Environment}"
-      CodeUri: src/user-authorizer-python/
+      FunctionName: !Sub "process-sequence-${Environment}"
+      CodeUri: ./src/user-authorizer-python/
       Handler: app.lambda_handler
       Runtime: python3.9
-      Timeout: 5
-      MemorySize: 128
-      Policies:
-        - AWSLambdaBasicExecutionRole
-      FunctionUrlConfig:
-        AuthType: NONE
-
-  QueueJobFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "QueueJobFunction-${Environment}"
-      CodeUri: src/queue-job-python/
-      Handler: app.lambda_handler
-      Runtime: python3.9
-      Timeout: 10
-      MemorySize: 256
+      Timeout: 300
+      MemorySize: 512
       Environment:
         Variables:
-          BUCKET_NAME: !Ref SequencesBucketName
-          STATE_MACHINE_ARN: arn:aws:states:us-east-1:879381258545:stateMachine:JobStateMachine-dev
+          SEQUENCES_BUCKET: !Ref SequencesBucketName
+          STATE_MACHINE_ARN: !Ref StateMachineArn
       Policies:
         - AWSLambdaBasicExecutionRole
-        - Statement:
+        - Version: '2012-10-17'
+          Statement:
             - Effect: Allow
               Action:
                 - states:StartExecution
-              Resource: arn:aws:states:us-east-1:879381258545:stateMachine:JobStateMachine-dev
+              Resource: !Ref StateMachineArn
       Events:
-        QueueJobAPI:
-          Type: Api
-          Properties:
-            Path: /pipeline
-            Method: POST
-            RestApiId: !Ref CMAPI
-            Auth:
-              Authorizer: LambdaTokenAuthorizer
-
-  DeleteJobFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "DeleteJobFunction-${Environment}"
-      CodeUri: src/delete-job-python/
-      Handler: app.lambda_handler
-      Runtime: python3.9
-      Timeout: 10
-      MemorySize: 256
-      Environment:
-        Variables:
-          BUCKET_NAME: !Ref SequencesBucketName
-      Policies:
-        - AWSLambdaBasicExecutionRole
-      Events:
-        DeleteJobAPI:
-          Type: Api
-          Properties:
-            Path: /pipeline
-            Method: DELETE
-            RestApiId: !Ref CMAPI
-            Auth:
-              Authorizer: LambdaTokenAuthorizer
-
-Outputs:
-  ApiId:
-    Value: !Ref CMAPI
-    Export:
-      Name: !Sub "${AWS::StackName}-ApiId"
-
-  ApiUrl:
-    Value: !Sub "https://${CMAPI}.execute-api.${AWS::Region}.amazonaws.com/prod"
-    Export:
-      Name: !Sub "${AWS::StackName}-ApiUrl"
+        Api:
+          Type: HttpApi
