@@ -56,8 +56,8 @@ Resources:
                   - !Ref UpdateJobFunctionArn
 
 Outputs:
-  StepFunctionArn:
+  StateMachineArn:
     Description: ARN of the JobOrchestration state machine
     Value: !Ref JobOrchestrationStateMachine
     Export:
-      Name: StepFunctionStack-StepFunctionArn
+      Name: StepFunctionStack-StateMachineArn
