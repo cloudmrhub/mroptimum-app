@@ -13,7 +13,53 @@ Parameters:
   StateMachineArn:
     Type: String
 
+  PipelineScheduler:
+    Type: String
+    Description: URL for triggering the pipeline
+
+  Host:
+    Type: String
+
 Resources:
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "MROptimumApi-${Environment}"
+      ProtocolType: HTTP
+
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+
+
+
+  QueueJobIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QueueJobFunction.Arn}/invocations
+      PayloadFormatVersion: "2.0"
+
+  QueueJobRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /queue-job"
+      Target: !Sub integrations/${QueueJobIntegration}
+      AuthorizationType: NONE
+
+  QueueJobInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt QueueJobFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/POST/queue-job
+
   ProcessSequenceFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -27,6 +73,7 @@ Resources:
         Variables:
           SEQUENCES_BUCKET: !Ref SequencesBucketName
           STATE_MACHINE_ARN: !Ref StateMachineArn
+          Host: !Ref Host
       Policies:
         - AWSLambdaBasicExecutionRole
         - Version: '2012-10-17'
@@ -35,6 +82,155 @@ Resources:
               Action:
                 - states:StartExecution
               Resource: !Ref StateMachineArn
+
+  # ProcessAuthorizer:
+  #   Type: AWS::ApiGatewayV2::Authorizer
+  #   DependsOn: HttpApi
+  #   Properties:
+  #     Name: process-authorizer
+  #     ApiId: !Ref HttpApi
+  #     AuthorizerType: REQUEST
+  #     AuthorizerUri:
+  #       Fn::Sub:
+  #         - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+  #         - { LambdaArn: !GetAtt ProcessSequenceFunction.Arn }
+  #     IdentitySource:
+  #       - route.request.header.Authorization
+  #     AuthorizerPayloadFormatVersion: "2.0"
+  #     EnableSimpleResponses: true
+
+
+  # AuthorizerInvokePermission:
+  #   Type: AWS::Lambda::Permission
+  #   Properties:
+  #     FunctionName: !GetAtt ProcessSequenceFunction.Arn
+  #     Action: lambda:InvokeFunction
+  #     Principal: apigateway.amazonaws.com
+  #     SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*
+
+  QueueJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "queue-job-${Environment}"
+      CodeUri: ./build/api/QueueJobFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          PipelineScheduler: !Ref PipelineScheduler
+          StateMachineArn: !Ref StateMachineArn
+          ResultsBucketName: !Ref SequencesBucketName
+          FailedBucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource:
+                - !Sub arn:aws:s3:::${SequencesBucketName}/*
+                - !Sub arn:aws:s3:::mro-failed-${Environment}-${AWS::Region}/*
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Ref StateMachineArn
+
+  DeleteJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "delete-job-${Environment}"
+      CodeUri: ./build/api/DeleteJobFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          PipelineScheduler: !Ref PipelineScheduler
+      Policies:
+        - AWSLambdaBasicExecutionRole
       Events:
-        Api:
+        DeleteJobAPI:
           Type: HttpApi
+          Properties:
+            Path: /delete-job
+            Method: DELETE
+
+  GetNiiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-nii-${Environment}"
+      CodeUri: ./build/api/GetNiiFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 256
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: "*"
+      Events:
+        GetNiiAPI:
+          Type: HttpApi
+          Properties:
+            Path: /get-nii
+            Method: POST
+
+  GetSignedURLFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-signed-url-${Environment}"
+      CodeUri: ./build/api/GetSignedURLFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 256
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: "*"
+      Events:
+        GetSignedURLAPI:
+          Type: HttpApi
+          Properties:
+            Path: /signed-url
+            Method: POST
+
+  DownloadRequestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "download-request-${Environment}"
+      CodeUri: ./build/api/DownloadRequestFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          Host: !Ref Host
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: "*"
+      Events:
+        DownloadRequestAPI:
+          Type: HttpApi
+          Properties:
+            Path: /download-jobs
+            Method: GET

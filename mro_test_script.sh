@@ -1,58 +1,58 @@
 #!/bin/bash
-
-# === MR Optimum System Test Script ===
-
 set -e
 
 echo "Starting test script for MRORootStack..."
-STACK_NAME="MRORootStack"
 
-echo "Fetching CloudFormation outputs for $STACK_NAME..."
-OUTPUTS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs" --output json)
+# Fetch ARNs from nested stacks
+UPDATE_JOB_ARN=$(aws cloudformation describe-stacks \
+  --stack-name MRORootStack-ComputeStack-18KSJ9M95ZSNM \
+  --query "Stacks[0].Outputs[?OutputKey=='UpdateJobFunctionArn'].OutputValue" \
+  --output text)
 
-# Extract key outputs
-RunJobFunctionArn=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="RunJobFunctionArn") | .OutputValue')
-UpdateJobFunctionArn=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="UpdateJobFunctionArn") | .OutputValue')
-PipelineCompletedApi=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="PipelineCompletedApi") | .OutputValue')
-StateMachineArn=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="StateMachineArn") | .OutputValue')
-ResultsBucket=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="ResultsBucket") | .OutputValue')
+RUN_JOB_ARN=$(aws cloudformation describe-stacks \
+  --stack-name MRORootStack-ComputeStack-18KSJ9M95ZSNM \
+  --query "Stacks[0].Outputs[?OutputKey=='RunJobFunctionArn'].OutputValue" \
+  --output text)
 
-# Create test payload file for Lambda
-echo '{"job_id": "123", "input": "test-sequence"}' > test_payload.json
+RESULTS_BUCKET=$(aws cloudformation describe-stacks \
+  --stack-name MRORootStack-CommonStack-182S7TJ5H9RJ0 \
+  --query "Stacks[0].Outputs[?OutputKey=='ResultsBucket'].OutputValue" \
+  --output text)
 
-# === Test Step Function Execution ===
-EXECUTION_NAME="test-run-$(date +%s)"
-echo " Starting Step Function execution: $EXECUTION_NAME"
-aws stepfunctions start-execution \
-  --state-machine-arn "$StateMachineArn" \
-  --name "$EXECUTION_NAME" \
-  --input file://test_payload.json
+FAILED_BUCKET=$(aws cloudformation describe-stacks \
+  --stack-name MRORootStack-CommonStack-182S7TJ5H9RJ0 \
+  --query "Stacks[0].Outputs[?OutputKey=='FailedBucket'].OutputValue" \
+  --output text)
 
-# === Test RunJob Lambda Function ===
-aws lambda invoke \
-  --function-name "$RunJobFunctionArn" \
-  --payload file://test_payload.json \
-  --cli-binary-format raw-in-base64-out \
-  output-runjob.json
+STEP_FUNCTION_ARN="arn:aws:states:us-east-1:879381258545:stateMachine:JobStateMachine-dev"
 
-# === Test UpdateJob Lambda Function ===
-aws lambda invoke \
-  --function-name "$UpdateJobFunctionArn" \
-  --payload file://update_payload.json \
-  --cli-binary-format raw-in-base64-out \
-  output-updatejob.json
+echo "Testing Step Function execution..."
+EXECUTION_ARN=$(aws stepfunctions start-execution \
+  --state-machine-arn "$STEP_FUNCTION_ARN" \
+  --input "{\"bucket\": \"$RESULTS_BUCKET\", \"key\": \"sample-job-input.json\"}" \
+  --query "executionArn" --output text)
 
-# === Test API Gateway Endpoint ===
-echo "Testing API Gateway endpoint..."
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"job_id": "abc123"}' \
-  "https://$PipelineCompletedApi"
+echo "Started execution: $EXECUTION_ARN"
+echo "Polling for execution status..."
 
-# === Test S3 Upload ===
-TEST_FILE="testfile-$(date +%s).txt"
-echo "📦 Uploading test file to S3: $TEST_FILE"
-echo "Hello from MR Optimum test" > "$TEST_FILE"
-aws s3 cp "$TEST_FILE" "s3://$ResultsBucket/$TEST_FILE"
+while true; do
+  STATUS=$(aws stepfunctions describe-execution \
+    --execution-arn "$EXECUTION_ARN" \
+    --query "status" \
+    --output text)
+  
+  echo "Current status: $STATUS"
+  if [[ "$STATUS" == "SUCCEEDED" || "$STATUS" == "FAILED" || "$STATUS" == "TIMED_OUT" || "$STATUS" == "ABORTED" ]]; then
+    break
+  fi
+  sleep 5
+done
 
-echo "Test script completed successfully."
+if [[ "$STATUS" == "SUCCEEDED" ]]; then
+  echo "✅ Execution succeeded!"
+else
+  echo "❌ Execution failed with status: $STATUS"
+fi
+
+echo "Execution output:"
+aws stepfunctions describe-execution --execution-arn "$EXECUTION_ARN"

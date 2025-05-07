@@ -1,3 +1,89 @@
+# AWSTemplateFormatVersion: '2010-09-09'
+# Transform: AWS::Serverless-2016-10-31
+# Description: State machine to orchestrate job execution in MR Optimum
+
+# Parameters:
+#   Environment:
+#     Type: String
+#     Default: dev
+
+#   RunJobFunctionArn:
+#     Type: String
+
+#   UpdateJobFunctionArn:
+#     Type: String
+
+#   RunJobFunctionFargateArn:
+#     Type: String
+
+# Resources:
+#   JobOrchestrationStateMachine:
+#     Type: AWS::Serverless::StateMachine
+#     Properties:
+#       Name: !Sub "JobStateMachine-${Environment}"
+#       Definition:
+#         StartAt: DecideExecutionPath
+#         States:
+#           DecideExecutionPath:
+#             Type: Choice
+#             Choices:
+#               - Variable: "$.executionType"
+#                 StringEquals: "lambda"
+#                 Next: RunJob
+#               - Variable: "$.executionType"
+#                 StringEquals: "fargate"
+#                 Next: SubmitFargateJob
+#             Default: RunJob
+
+#           RunJob:
+#             Type: Task
+#             Resource: !Ref RunJobFunctionArn
+#             Next: UpdateJob
+
+#           SubmitFargateJob:
+#             Type: Task
+#             Resource: !Ref RunJobFunctionFargateArn
+#             Next: UpdateJob
+
+#           UpdateJob:
+#             Type: Task
+#             Resource: !Ref UpdateJobFunctionArn
+#             End: true
+
+#       Role: !GetAtt StepFunctionExecutionRole.Arn
+
+#   StepFunctionExecutionRole:
+#     Type: AWS::IAM::Role
+#     Properties:
+#       RoleName: !Sub "StepFunctionExecutionRole-${Environment}"
+#       AssumeRolePolicyDocument:
+#         Version: '2012-10-17'
+#         Statement:
+#           - Effect: Allow
+#             Principal:
+#               Service:
+#                 - states.amazonaws.com
+#             Action: sts:AssumeRole
+#       Policies:
+#         - PolicyName: StateMachineInvokeLambda
+#           PolicyDocument:
+#             Version: '2012-10-17'
+#             Statement:
+#               - Effect: Allow
+#                 Action:
+#                   - lambda:InvokeFunction
+#                 Resource:
+#                   - !Ref RunJobFunctionArn
+#                   - !Ref UpdateJobFunctionArn
+#                   - !Ref RunJobFunctionFargateArn
+
+# Outputs:
+#   StateMachineArn:
+#     Description: ARN of the JobOrchestration state machine
+#     Value: !Ref JobOrchestrationStateMachine
+#     Export:
+#       Name: StepFunctionStack-StateMachineArn
+
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: State machine to orchestrate job execution in MR Optimum
@@ -13,22 +99,43 @@ Parameters:
   UpdateJobFunctionArn:
     Type: String
 
+  RunJobFunctionFargateArn:
+    Type: String
+
 Resources:
   JobOrchestrationStateMachine:
     Type: AWS::Serverless::StateMachine
     Properties:
       Name: !Sub "JobStateMachine-${Environment}"
       Definition:
-        StartAt: RunJob
+        StartAt: DecideExecutionPath
         States:
+          DecideExecutionPath:
+            Type: Choice
+            Choices:
+              - Variable: "$.executionType"
+                StringEquals: "lambda"
+                Next: RunJob
+              - Variable: "$.executionType"
+                StringEquals: "fargate"
+                Next: SubmitFargateJob
+            Default: RunJob
+
           RunJob:
             Type: Task
             Resource: !Ref RunJobFunctionArn
             Next: UpdateJob
+
+          SubmitFargateJob:
+            Type: Task
+            Resource: !Ref RunJobFunctionFargateArn  # This is your Fargate task ARN
+            Next: UpdateJob
+
           UpdateJob:
             Type: Task
             Resource: !Ref UpdateJobFunctionArn
             End: true
+
       Role: !GetAtt StepFunctionExecutionRole.Arn
 
   StepFunctionExecutionRole:
@@ -54,6 +161,11 @@ Resources:
                 Resource:
                   - !Ref RunJobFunctionArn
                   - !Ref UpdateJobFunctionArn
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask  # Allow Step Function to run Fargate tasks
+                Resource:
+                  - !Ref RunJobFunctionFargateArn
 
 Outputs:
   StateMachineArn:

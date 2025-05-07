@@ -60,7 +60,7 @@ Outputs:
 
   PipelineSchedulerApi:
     Description: API endpoint for scheduling pipelines
-    Value: !Sub "${PipelineSchedulerApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Value: !Sub "https://${PipelineSchedulerApi}.execute-api.${AWS::Region}.amazonaws.com"
     Export:
       Name: !Sub "${AWS::StackName}-PipelineSchedulerApi"
 

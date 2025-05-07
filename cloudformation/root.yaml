@@ -6,7 +6,7 @@ Parameters:
   Environment:
     Type: String
     Default: dev
-
+  
 Globals:
   Function:
     Timeout: 900
@@ -44,6 +44,7 @@ Resources:
         Environment: !Ref Environment
         RunJobFunctionArn: !GetAtt ComputeStack.Outputs.RunJobFunctionArn
         UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
+        RunJobFunctionFargateArn: !GetAtt ComputeStack.Outputs.RunJobFunctionFargateArn  
 
   APIStack:
     Type: AWS::Serverless::Application
@@ -53,6 +54,8 @@ Resources:
         Environment: !Ref Environment
         SequencesBucketName: !Sub "mro-results-${Environment}-${AWS::Region}"
         StateMachineArn: !GetAtt StepFunctionStack.Outputs.StateMachineArn
+        PipelineScheduler: !GetAtt CommonStack.Outputs.PipelineSchedulerApi
+        Host: !GetAtt CommonStack.Outputs.Host
 
   ArkStack:
     Type: AWS::Serverless::Application
@@ -71,4 +74,20 @@ Resources:
         Environment: !Ref Environment
         FailedBucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
         UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
-        
+
+  FargateStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: fargate.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ContainerImage: "879381258545.dkr.ecr.us-east-1.amazonaws.com/mr-optimum-fargate"
+        SubnetID: "subnet-086697b339ea637c6"
+        SecurityGroupID: "sg-067975bcba7308272"
+        RunJobFunctionArn: !GetAtt ComputeStack.Outputs.RunJobFunctionArn
+        UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
+        ResultsBucketName: !Sub "mro-results-${Environment}-${AWS::Region}"
+        FailedBucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
+
+
+
