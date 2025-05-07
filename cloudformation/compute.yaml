@@ -20,21 +20,35 @@ Parameters:
     Type: String
 
 Resources:
+
   RunJobFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ../src/run-job-python/
-      Handler: app.lambda_handler
+      Handler: app.handler
       Runtime: python3.9
       Timeout: 900
-      MemorySize: 3008
-      PackageType: Zip
-      Architectures:
-        - x86_64
+      MemorySize: 512
+      Environment:
+        Variables:
+          ECR_IMAGE_URI: 879381258545.dkr.ecr.us-east-1.amazonaws.com/mr-optimum-job:latest
+          CLUSTER_NAME: !Sub "mr-optimum-cluster-${Environment}"
+          TASK_DEF: !Sub "mr-optimum-task-${Environment}"
+          SUBNET_ID: subnet-086697b339ea637c6  # Replace with real
+          SECURITY_GROUP_ID: sg-067975bcba7308272 # Replace with real
       Policies:
         - AWSLambdaBasicExecutionRole
-      FunctionUrlConfig:
-        AuthType: NONE
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ecs:RunTask
+                - iam:PassRole
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub "arn:aws:s3:::${FailedBucketName}/*"
 
   UpdateJobFunction:
     Type: AWS::Serverless::Function
@@ -64,6 +78,12 @@ Resources:
                 - !Sub arn:aws:s3:::${FailedBucketName}/*
 
 Outputs:
+  RunJobFunctionFargateArn:
+    Description: ARN of the RunJob Lambda function (Fargate-style call)
+    Value: !GetAtt RunJobFunction.Arn
+    Export:
+      Name: ComputeStack-RunJobFunctionFargateArn
+
   RunJobFunctionArn:
     Description: ARN of the RunJob Lambda function
     Value: !GetAtt RunJobFunction.Arn

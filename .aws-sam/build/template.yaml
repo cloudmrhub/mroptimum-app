@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: ECS Fargate setup for MR Optimum
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  ContainerImage:
+    Type: String
+    Description: The ECR container image URI for the MR Optimum task
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName:
+        Fn::Sub: mroptimum-cluster-${Environment}
+  FargateTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: ecs-tasks.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: ECSFargateExecutionPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - ecr:GetAuthorizationToken
+            - ecr:BatchGetImage
+            - ecr:BatchCheckLayerAvailability
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: '*'
+  FargateTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family:
+        Fn::Sub: mroptimum-task-${Environment}
+      ExecutionRoleArn:
+        Fn::GetAtt:
+        - FargateTaskExecutionRole
+        - Arn
+      NetworkMode: awsvpc
+      Cpu: '256'
+      Memory: '512'
+      ContainerDefinitions:
+      - Name: mroptimum-container
+        Image:
+          Ref: ContainerImage
+        Essential: true
+        PortMappings:
+        - ContainerPort: 80
+        Environment:
+        - Name: JOB_ID
+          Value: sample-job-id
+        - Name: INPUT_FILE
+          Value: sample-input-file
+  FargateService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster:
+        Ref: ECSCluster
+      TaskDefinition:
+        Ref: FargateTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+          - Ref: SubnetID
+          SecurityGroups:
+          - Ref: SecurityGroupID
+          AssignPublicIp: ENABLED
+  JobOrchestrationStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name:
+        Fn::Sub: JobStateMachine-${Environment}
+      Definition:
+        StartAt: DecideExecutionPath
+        States:
+          DecideExecutionPath:
+            Type: Choice
+            Choices:
+            - Variable: $.executionType
+              StringEquals: lambda
+              Next: RunJob
+            - Variable: $.executionType
+              StringEquals: fargate
+              Next: SubmitFargateJob
+            Default: RunJob
+          RunJob:
+            Type: Task
+            Resource:
+              Ref: RunJobFunctionArn
+            Next: UpdateJob
+          SubmitFargateJob:
+            Type: Task
+            Resource: arn:aws:states:::ecs:runTask.sync
+            Parameters:
+              Cluster:
+                Ref: ECSCluster
+              TaskDefinition:
+                Ref: FargateTaskDefinition
+              LaunchType: FARGATE
+              NetworkConfiguration:
+                AwsvpcConfiguration:
+                  Subnets:
+                  - Ref: SubnetID
+                  SecurityGroups:
+                  - Ref: SecurityGroupID
+                  AssignPublicIp: ENABLED
+            Next: UpdateJob
+          UpdateJob:
+            Type: Task
+            Resource:
+              Ref: UpdateJobFunctionArn
+            End: true
+  StepFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - states.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: StateMachineInvokeLambda
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - lambda:InvokeFunction
+            Resource:
+            - Ref: RunJobFunctionArn
+            - Ref: UpdateJobFunctionArn
+          - Effect: Allow
+            Action:
+            - ecs:RunTask
+            Resource:
+            - Ref: FargateTaskDefinition
+Outputs:
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value:
+      Ref: ECSCluster
+  FargateTaskDefinitionArn:
+    Description: Fargate Task Definition ARN
+    Value:
+      Ref: FargateTaskDefinition
+  FargateServiceArn:
+    Description: Fargate Service ARN
+    Value:
+      Ref: FargateService
+  StateMachineArn:
+    Description: State Machine ARN
+    Value:
+      Ref: JobOrchestrationStateMachine
+    Export:
+      Name: StepFunctionStack-StateMachineArn

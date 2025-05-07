@@ -1,25 +1,45 @@
+import os
+import json
+import urllib3
+
+http = urllib3.PoolManager()
+
 def lambda_handler(event, context):
-    print("=== AUTHORIZER START ===")
-    print("Raw event:", event)
+    try:
+        token = event.get("headers", {}).get("authorization", "")
 
-    token = event.get("authorizationToken")  # <-- THIS IS THE FIX
-    print("Extracted token:", token)
+        if not token:
+            raise ValueError("Missing token")
 
-    if token == "allow-token":
-        print("Authorized ✔")
+        # External auth call (e.g. to CloudMR)
+        resp = http.request(
+            "GET",
+            f"{os.environ['Host']}/api/auth/profile",
+            headers={
+                "Authorization": token,
+                "User-Agent": "cloudmr client",
+                "From": "mr-optimum@cloudmrhub.org"
+            }
+        )
+
+        data = json.loads(resp.data.decode("utf-8"))
+
+        if resp.status != 200 or "id" not in data or "name" not in data:
+            raise ValueError("Unauthorized")
+
         return {
-            "principalId": "test-user",
-            "policyDocument": {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Action": "execute-api:Invoke",
-                        "Effect": "Allow",
-                        "Resource": event["methodArn"]
-                    }
-                ]
+            "isAuthorized": True,
+            "context": {
+                "user_id": data["id"],
+                "user_name": data["name"],
+                "user_email": data.get("email", "")
             }
         }
 
-    print("Unauthorized ❌")
-    raise Exception("Unauthorized")
+    except Exception as e:
+        return {
+            "isAuthorized": False,
+            "context": {
+                "error": str(e)
+            }
+        }
