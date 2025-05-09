@@ -6,6 +6,25 @@ Parameters:
   Environment:
     Type: String
     Default: dev
+  GithubToken:
+    Type: String
+    Description: GitHub token for Amplify to connect to the repo
+  # CloudmrServer:
+  #   Type: String
+  #   Description: URL for CloudMR server
+  # MroServer:
+  #   Type: String
+  #   Description: URL for MRO server
+  # ProfileServer:
+  #   Type: String
+  #   Description: URL for profile server
+  # ApiUrl:
+  #   Type: String
+  #   Description: Base URL for backend API (e.g., API Gateway)
+  # ApiToken:
+  #   Type: String
+  #   Description: API access token
+
   
 Globals:
   Function:
@@ -56,6 +75,7 @@ Resources:
         StateMachineArn: !GetAtt StepFunctionStack.Outputs.StateMachineArn
         PipelineScheduler: !GetAtt CommonStack.Outputs.PipelineSchedulerApi
         Host: !GetAtt CommonStack.Outputs.Host
+        DataBucketName: !GetAtt CommonStack.Outputs.DataBucketName
 
   ArkStack:
     Type: AWS::Serverless::Application
@@ -75,6 +95,20 @@ Resources:
         FailedBucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
         UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
 
+
+  AmplifyStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: amplify.yaml
+      Parameters:
+        GithubToken: !Ref GithubToken
+        CloudmrServer: !GetAtt CommonStack.Outputs.Host
+        MroServer: !GetAtt APIStack.Outputs.MROApi
+        ProfileServer: !GetAtt CommonStack.Outputs.ProfileGetAPI
+        ApiUrl: !GetAtt APIStack.Outputs.QueueJobApi
+        ApiToken: !GetAtt ArkStack.Outputs.ApiToken
+
+
   FargateStack:
     Type: AWS::Serverless::Application
     Properties:
@@ -88,6 +122,9 @@ Resources:
         UpdateJobFunctionArn: !GetAtt ComputeStack.Outputs.UpdateJobFunctionArn
         ResultsBucketName: !Sub "mro-results-${Environment}-${AWS::Region}"
         FailedBucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
+
+
+
 
 
 

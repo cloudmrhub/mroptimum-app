@@ -1,170 +1,119 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: ECS Fargate setup for MR Optimum
+Description: Common stack with shared S3 buckets and APIs for MR Optimum
 Parameters:
   Environment:
     Type: String
     Default: dev
-  ContainerImage:
-    Type: String
-    Description: The ECR container image URI for the MR Optimum task
 Resources:
-  ECSCluster:
-    Type: AWS::ECS::Cluster
+  ResultsBucket:
+    Type: AWS::S3::Bucket
     Properties:
-      ClusterName:
-        Fn::Sub: mroptimum-cluster-${Environment}
-  FargateTaskExecutionRole:
-    Type: AWS::IAM::Role
+      BucketName:
+        Fn::Sub: mro-results-${Environment}-${AWS::Region}
+  FailedBucket:
+    Type: AWS::S3::Bucket
     Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service: ecs-tasks.amazonaws.com
-          Action: sts:AssumeRole
-      Policies:
-      - PolicyName: ECSFargateExecutionPolicy
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Action:
-            - ecr:GetAuthorizationToken
-            - ecr:BatchGetImage
-            - ecr:BatchCheckLayerAvailability
-            - logs:CreateLogStream
-            - logs:PutLogEvents
-            Resource: '*'
-  FargateTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
+      BucketName:
+        Fn::Sub: mro-failed-${Environment}-${AWS::Region}
+  DataBucket:
+    Type: AWS::S3::Bucket
     Properties:
-      Family:
-        Fn::Sub: mroptimum-task-${Environment}
-      ExecutionRoleArn:
-        Fn::GetAtt:
-        - FargateTaskExecutionRole
-        - Arn
-      NetworkMode: awsvpc
-      Cpu: '256'
-      Memory: '512'
-      ContainerDefinitions:
-      - Name: mroptimum-container
-        Image:
-          Ref: ContainerImage
-        Essential: true
-        PortMappings:
-        - ContainerPort: 80
-        Environment:
-        - Name: JOB_ID
-          Value: sample-job-id
-        - Name: INPUT_FILE
-          Value: sample-input-file
-  FargateService:
-    Type: AWS::ECS::Service
-    Properties:
-      Cluster:
-        Ref: ECSCluster
-      TaskDefinition:
-        Ref: FargateTaskDefinition
-      DesiredCount: 1
-      LaunchType: FARGATE
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          Subnets:
-          - Ref: SubnetID
-          SecurityGroups:
-          - Ref: SecurityGroupID
-          AssignPublicIp: ENABLED
-  JobOrchestrationStateMachine:
-    Type: AWS::Serverless::StateMachine
+      BucketName:
+        Fn::Sub: mro-data-${Environment}-${AWS::Region}
+  PipelineCompletedApi:
+    Type: AWS::Serverless::HttpApi
     Properties:
       Name:
-        Fn::Sub: JobStateMachine-${Environment}
-      Definition:
-        StartAt: DecideExecutionPath
-        States:
-          DecideExecutionPath:
-            Type: Choice
-            Choices:
-            - Variable: $.executionType
-              StringEquals: lambda
-              Next: RunJob
-            - Variable: $.executionType
-              StringEquals: fargate
-              Next: SubmitFargateJob
-            Default: RunJob
-          RunJob:
-            Type: Task
-            Resource:
-              Ref: RunJobFunctionArn
-            Next: UpdateJob
-          SubmitFargateJob:
-            Type: Task
-            Resource: arn:aws:states:::ecs:runTask.sync
-            Parameters:
-              Cluster:
-                Ref: ECSCluster
-              TaskDefinition:
-                Ref: FargateTaskDefinition
-              LaunchType: FARGATE
-              NetworkConfiguration:
-                AwsvpcConfiguration:
-                  Subnets:
-                  - Ref: SubnetID
-                  SecurityGroups:
-                  - Ref: SecurityGroupID
-                  AssignPublicIp: ENABLED
-            Next: UpdateJob
-          UpdateJob:
-            Type: Task
-            Resource:
-              Ref: UpdateJobFunctionArn
-            End: true
-  StepFunctionExecutionRole:
-    Type: AWS::IAM::Role
+        Fn::Sub: pipeline-completed-api-${Environment}
+  PipelineFailedApi:
+    Type: AWS::Serverless::HttpApi
     Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service:
-            - states.amazonaws.com
-          Action: sts:AssumeRole
-      Policies:
-      - PolicyName: StateMachineInvokeLambda
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
-          - Effect: Allow
-            Action:
-            - lambda:InvokeFunction
-            Resource:
-            - Ref: RunJobFunctionArn
-            - Ref: UpdateJobFunctionArn
-          - Effect: Allow
-            Action:
-            - ecs:RunTask
-            Resource:
-            - Ref: FargateTaskDefinition
+      Name:
+        Fn::Sub: pipeline-failed-api-${Environment}
+  PipelineSchedulerApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name:
+        Fn::Sub: pipeline-scheduler-api-${Environment}
+  DeleteDataApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name:
+        Fn::Sub: delete-data-api-${Environment}
+  UpdateDataApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name:
+        Fn::Sub: update-data-api-${Environment}
 Outputs:
-  ECSClusterName:
-    Description: ECS Cluster Name
+  ResultsBucket:
+    Description: S3 bucket for successful results
     Value:
-      Ref: ECSCluster
-  FargateTaskDefinitionArn:
-    Description: Fargate Task Definition ARN
-    Value:
-      Ref: FargateTaskDefinition
-  FargateServiceArn:
-    Description: Fargate Service ARN
-    Value:
-      Ref: FargateService
-  StateMachineArn:
-    Description: State Machine ARN
-    Value:
-      Ref: JobOrchestrationStateMachine
+      Ref: ResultsBucket
     Export:
-      Name: StepFunctionStack-StateMachineArn
+      Name:
+        Fn::Sub: ${AWS::StackName}-ResultsBucket
+  FailedBucket:
+    Description: S3 bucket for failed jobs
+    Value:
+      Ref: FailedBucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-FailedBucket
+  DataBucketName:
+    Description: S3 bucket for input data
+    Value:
+      Ref: DataBucket
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-DataBucketName
+  PipelineCompletedApi:
+    Description: API endpoint for completed pipelines
+    Value:
+      Fn::Sub: ${PipelineCompletedApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-PipelineCompletedApi
+  PipelineFailedApi:
+    Description: API endpoint for failed pipelines
+    Value:
+      Fn::Sub: ${PipelineFailedApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-PipelineFailedApi
+  PipelineSchedulerApi:
+    Description: API endpoint for scheduling pipelines
+    Value:
+      Fn::Sub: https://${PipelineSchedulerApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-PipelineSchedulerApi
+  Host:
+    Description: Hostname for API calls
+    Value:
+      Fn::Sub: ${PipelineCompletedApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-Host
+  deleteDataAPI:
+    Description: Hostname for delete API
+    Value:
+      Fn::Sub: ${DeleteDataApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-deleteDataAPI
+  updateDataAPI:
+    Description: Hostname for update API
+    Value:
+      Fn::Sub: ${UpdateDataApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-updateDataAPI
+  ProfileGetAPI:
+    Description: Profile service endpoint
+    Value:
+      Fn::Sub: ${PipelineSchedulerApi}.execute-api.${AWS::Region}.amazonaws.com
+    Export:
+      Name:
+        Fn::Sub: ${AWS::StackName}-ProfileGetAPI

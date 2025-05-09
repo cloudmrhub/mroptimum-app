@@ -2,79 +2,87 @@ import json
 import os
 import boto3
 import uuid
-import urllib3
+import datetime
+
+s3 = boto3.client("s3")
 
 def lambda_handler(event, context):
-    try:
-        # Step 1: Parse the request
-        body = json.loads(event["body"])
-        alias = body["alias"]
-        task = body["task"]
-        output = body.get("output", {})
-        token = event["headers"].get("Authorization", "")
+    print("Received event:", json.dumps(event))
 
-        # Step 2: Call the PipelineScheduler to get pipeline ID
-        scheduler_url = os.environ["PipelineScheduler"]
-        http = urllib3.PoolManager()
-        scheduler_resp = http.request(
-            "POST",
-            scheduler_url,
-            body=json.dumps({"alias": alias}),
-            headers={"Content-Type": "application/json", "Authorization": token}
+    body = json.loads(event["body"])
+    alias = body.get("alias", "alias")
+
+    job_id = str(uuid.uuid4())
+    now = datetime.datetime.now()
+    now_str = now.strftime("%Y-%m-%d-%H-%M-%S")
+    key = f"{alias}/{now_str}/{job_id}.json"
+
+    print(f"Creating job file at: {key}")
+
+    bucket = os.environ["ResultsBucketName"]
+    failed_bucket = os.environ["FailedBucketName"]
+
+    try:
+        # Step 1: Write input JSON to S3
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(body),
+            ContentType="application/json"
         )
 
-        if scheduler_resp.status != 200:
-            return {"statusCode": 502, "body": "PipelineScheduler failed."}
+        print(f"Uploaded input JSON to s3://{bucket}/{key}")
 
-        pipeline_id = json.loads(scheduler_resp.data.decode("utf-8")).get("id")
-
-        # Step 3: Build the job object
-        job = {
-            "pipeline": pipeline_id,
-            "token": token,
-            "output": output,
-            "task": task
-        }
-
-        # Step 4: Write job to /tmp and create fake FILE_EVENT
-        filename = f"{uuid.uuid4()}.json"
-        filepath = f"/tmp/{filename}"
-        with open(filepath, "w") as f:
-            json.dump(job, f)
-
+        # Step 2: Prepare the FILE_EVENT object
         file_event = {
             "Records": [
                 {
                     "s3": {
-                        "bucket": {"name": os.environ["ResultsBucketName"]},
-                        "object": {"key": filename}
+                        "bucket": {"name": bucket},
+                        "object": {"key": key}
                     }
                 }
             ]
         }
 
-        # Step 5: Upload job file to S3
-        s3 = boto3.client("s3")
-        s3.upload_file(filepath, os.environ["ResultsBucketName"], filename)
+        # Step 3: Determine executionType dynamically from payload
+        execution_type = body.get("executionType", "fargate")  # Default is fargate
+        print(f"Triggering Step Function with executionType: {execution_type}")
 
-        # Step 6: Start Step Function
+        # Step 4: Start Step Function Execution
         sfn = boto3.client("stepfunctions")
         response = sfn.start_execution(
             stateMachineArn=os.environ["StateMachineArn"],
             input=json.dumps({
-                "executionType": "fargate",
+                "executionType": execution_type,
                 "FILE_EVENT": json.dumps(file_event)
             })
         )
 
+        print("Step Function started:", response["executionArn"])
+
         return {
             "statusCode": 200,
             "body": json.dumps({
-                "message": "Job queued successfully",
-                "executionArn": response["executionArn"],
-                "file": filename
+                "message": "Job submitted successfully",
+                "jobId": job_id,
+                "executionType": execution_type,
+                "executionArn": response["executionArn"]
             })
         }
 
     except Exception as e:
-        return {"statusCode": 500, "body": str(e)}
+        print("Error submitting job:", str(e))
+
+        # Upload the job input to the failed bucket
+        s3.put_object(
+            Bucket=failed_bucket,
+            Key=key,
+            Body=json.dumps(body),
+            ContentType="application/json"
+        )
+
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"message": "PipelineScheduler failed."})
+        }
