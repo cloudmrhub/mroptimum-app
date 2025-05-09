@@ -77,6 +77,36 @@ Resources:
                 - !Sub arn:aws:s3:::${ResultsBucketName}/*
                 - !Sub arn:aws:s3:::${FailedBucketName}/*
 
+  GetNiiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "get-nii-${Environment}"
+      CodeUri: ../build/api/GetNiiFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          ResultsBucketName: !Ref ResultsBucketName
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource:
+                - !Sub arn:aws:s3:::${ResultsBucketName}/*
+      Events:
+        GetNiiAPI:
+          Type: HttpApi
+          Properties:
+            Path: /unzip
+            Method: POST
+
+
 Outputs:
   RunJobFunctionFargateArn:
     Description: ARN of the RunJob Lambda function (Fargate-style call)

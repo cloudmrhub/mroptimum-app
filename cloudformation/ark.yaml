@@ -43,3 +43,29 @@ Resources:
               Resource: !Sub "arn:aws:s3:::${FailedBucketName}/*"
       FunctionUrlConfig:
         AuthType: NONE
+
+  ApiTokenGeneratorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../build/ark/api_token_generator/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ssm:PutParameter
+              Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/mro/api-token
+      Environment:
+        Variables:
+          PARAMETER_NAME: "/mro/api-token"
+
+Outputs:
+  ApiToken:
+    Description: "The API token for Amplify environment variables"
+    Value: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/mro/api-token
+    Export:
+      Name: !Sub "ApiToken-${AWS::StackName}"
+
+

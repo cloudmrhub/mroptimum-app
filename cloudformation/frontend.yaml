@@ -43,3 +43,4 @@ Resources:
               Resource: !Sub "arn:aws:s3:::${FailedBucketName}/*"
       FunctionUrlConfig:
         AuthType: NONE
+        

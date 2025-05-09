@@ -18,6 +18,11 @@ Resources:
     Properties:
       BucketName: !Sub "mro-failed-${Environment}-${AWS::Region}"
 
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "mro-data-${Environment}-${AWS::Region}"
+
   PipelineCompletedApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -33,6 +38,16 @@ Resources:
     Properties:
       Name: !Sub "pipeline-scheduler-api-${Environment}"
 
+  DeleteDataApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub "delete-data-api-${Environment}"
+
+  UpdateDataApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub "update-data-api-${Environment}"
+
 Outputs:
   ResultsBucket:
     Description: S3 bucket for successful results
@@ -45,6 +60,12 @@ Outputs:
     Value: !Ref FailedBucket
     Export:
       Name: !Sub "${AWS::StackName}-FailedBucket"
+
+  DataBucketName:
+    Description: S3 bucket for input data
+    Value: !Ref DataBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-DataBucketName"
 
   PipelineCompletedApi:
     Description: API endpoint for completed pipelines
@@ -69,3 +90,21 @@ Outputs:
     Value: !Sub "${PipelineCompletedApi}.execute-api.${AWS::Region}.amazonaws.com"
     Export:
       Name: !Sub "${AWS::StackName}-Host"
+
+  deleteDataAPI:
+    Description: Hostname for delete API
+    Value: !Sub "${DeleteDataApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: !Sub "${AWS::StackName}-deleteDataAPI"
+
+  updateDataAPI:
+    Description: Hostname for update API
+    Value: !Sub "${UpdateDataApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: !Sub "${AWS::StackName}-updateDataAPI"
+
+  ProfileGetAPI:
+    Description: Profile service endpoint
+    Value: !Sub "${PipelineSchedulerApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: !Sub "${AWS::StackName}-ProfileGetAPI"

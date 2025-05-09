@@ -17,6 +17,10 @@ Parameters:
     Type: String
     Description: URL for triggering the pipeline
 
+  DataBucketName:
+    Type: String
+    Description: Name of the S3 bucket used to store uploaded and processed data files.
+
   Host:
     Type: String
 
@@ -159,29 +163,29 @@ Resources:
             Path: /delete-job
             Method: DELETE
 
-  GetNiiFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "get-nii-${Environment}"
-      CodeUri: ./build/api/GetNiiFunction/
-      Handler: app.lambda_handler
-      Runtime: python3.9
-      Timeout: 30
-      MemorySize: 256
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - Version: '2012-10-17'
-          Statement:
-            - Effect: Allow
-              Action:
-                - s3:GetObject
-              Resource: "*"
-      Events:
-        GetNiiAPI:
-          Type: HttpApi
-          Properties:
-            Path: /get-nii
-            Method: POST
+  # GetNiiFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     FunctionName: !Sub "get-nii-${Environment}"
+  #     CodeUri: ./build/api/GetNiiFunction/
+  #     Handler: app.lambda_handler
+  #     Runtime: python3.9
+  #     Timeout: 30
+  #     MemorySize: 256
+  #     Policies:
+  #       - AWSLambdaBasicExecutionRole
+  #       - Version: '2012-10-17'
+  #         Statement:
+  #           - Effect: Allow
+  #             Action:
+  #               - s3:GetObject
+  #             Resource: "*"
+  #     Events:
+  #       GetNiiAPI:
+  #         Type: HttpApi
+  #         Properties:
+  #           Path: /get-nii
+  #           Method: POST
 
   GetSignedURLFunction:
     Type: AWS::Serverless::Function
@@ -234,3 +238,155 @@ Resources:
           Properties:
             Path: /download-jobs
             Method: GET
+
+  UploadInitFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "upload-init-${Environment}"
+      CodeUri: ./build/api/UploadInitFunction/
+      Handler: app.handler
+      Runtime: nodejs16.x
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          UploadBucket: !Ref SequencesBucketName
+          Host: !Ref Host
+          PushCortex: "True"
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:CreateMultipartUpload
+                - s3:UploadPart
+                - s3:PutObject
+                - s3:AbortMultipartUpload
+              Resource: !Sub arn:aws:s3:::${SequencesBucketName}/*
+      Events:
+        UploadInitAPI:
+          Type: HttpApi
+          Properties:
+            Path: /uploadinitiate
+            Method: POST
+
+  UploadFinalizeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "upload-finalize-${Environment}"
+      CodeUri: ./build/api/UploadFinalizeFunction/
+      Handler: app.handler
+      Runtime: nodejs16.x
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          UploadBucket: !Ref SequencesBucketName
+          Host: !Ref Host
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:CompleteMultipartUpload
+              Resource: !Sub arn:aws:s3:::${SequencesBucketName}/*
+      Events:
+        UploadFinalizeAPI:
+          Type: HttpApi
+          Properties:
+            Path: /uploadfinalize
+            Method: POST
+
+  DeleteFileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "delete-file-${Environment}"
+      CodeUri: ./build/api/DeleteFileFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DataBucketName: !Ref DataBucketName
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:DeleteObject
+              Resource: !Sub arn:aws:s3:::${DataBucketName}/*
+      Events:
+        DeleteFileAPI:
+          Type: HttpApi
+          Properties:
+            Path: /deletedata
+            Method: GET
+
+  UpdateFileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "update-file-${Environment}"
+      CodeUri: ./build/api/UpdateFileFunction/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DataBucketName: !Ref DataBucketName
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub arn:aws:s3:::${DataBucketName}/*
+      Events:
+        UpdateFileAPI:
+          Type: HttpApi
+          Properties:
+            Path: /updatedata
+            Method: POST
+
+  ReadDataFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./build/api/ReadFileFunction/
+      Handler: app.read_data
+      Runtime: python3.9
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          DataBucketName: !Ref DataBucketName
+          Host: !Ref Host
+      Policies:
+        - S3FullAccessPolicy:
+            BucketName: !Ref DataBucketName
+      Events:
+        ReadDataAPI:
+          Type: HttpApi
+          Properties:
+            Path: /readdata
+            Method: GET
+
+Outputs:
+  QueueJobApi:
+    Description: "API endpoint to trigger pipeline"
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/queue-job"
+    Export:
+      Name: !Sub "QueueJobApi-${Environment}"
+  MROApi:
+    Description: Base URL for the API Gateway
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: !Sub "MROApi-${Environment}"
+
+
+
