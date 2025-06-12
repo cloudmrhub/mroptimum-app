@@ -303,7 +303,8 @@ Resources:
                           "Environment": [
                             {
                               "Name": "TASK_JSON",
-                              "Value.$": "$"
+                              "Value.$": "States.JsonToString($)"
+
                             }
                           ]
                         }

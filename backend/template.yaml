@@ -132,8 +132,14 @@ Resources:
         LambdaImageUri:      !Ref LambdaImageUri
         
 
-
-
+  APIApp:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: APIs/template.yaml
+      Parameters:
+        CortexHost: !Ref CortexHost
+        StageName: !Ref StageName
+        CalculationStateMachineARN: !GetAtt CalculationApp.Outputs.StateMachineArn
 
 Outputs:
   CalculationStateMachineArn:

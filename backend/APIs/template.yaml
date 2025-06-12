@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: MROptimum Queue‐Job API
+
+Parameters:
+  CortexHost:
+    Type: String
+  StageName:
+    Type: String
+    AllowedValues: [Prod, Dev, Test]
+    Default: Prod
+  CalculationStateMachineARN:
+    Type: String
+    Description: Step Functions state machine ARN
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        Host: !Ref CortexHost
+        CloudMRApiUrl: !Sub https://${CortexHost}/api
+        PipelineScheduler: !Sub https://${CortexHost}/api/pipeline/request
+        PipelineCompleted: !Sub https://${CortexHost}/api/pipeline/completed
+        PipelineFailed: !Sub https://${CortexHost}/api/pipeline/failed
+        deleteDataAPI: !Sub https://${CortexHost}/api/data/delete 
+        updateDataAPI: !Sub https://${CortexHost}/api/data/update 
+        PipelineDeleteAPI: !Sub https://${CortexHost}/api/pipeline/delete
+        CalculationStateMachineARN: !Ref CalculationStateMachineARN
+
+Resources:
+
+  MROptimumAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref StageName
+      Cors:
+        AllowMethods: "'POST,OPTIONS'"
+        AllowOrigin: "'*'"
+        AllowHeaders: "'*'"
+      Auth:
+        AddDefaultAuthorizerToCorsPreflight: false
+        DefaultAuthorizer: UserAuthorizer
+        Authorizers:
+          UserAuthorizer:
+            FunctionArn: !GetAtt UserAuthorizerFunction.Arn
+            Identity:
+              ReauthorizeEvery: 0
+
+  UserAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Tags:
+        owner: "montie01"
+        maintainer: "montie01"
+        project: "MR Optimum"
+        version: "v2"
+        team: "cloudmrhub"
+      PackageType: Zip
+      CodeUri: user-authorizer-python/  # Change this to point to your Python code directory
+      Handler: authorizer.lambda_handler  # Assuming your python file is named 'your_python_filename.py'
+      Runtime: python3.10  # Adjust based on your desired Python runtime version
+
+  QueueJobFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Tags:
+        owner: "montie01"
+        maintainer: "montie01"
+        project: "MR Optimum"
+        version: "v2"
+        team: "cloudmrhub"
+      Description: >-
+        Enqueue a new MR Optimum job (POST /pipeline)
+      CodeUri: queue-job-python/
+      Handler: app.lambda_handler
+      Runtime: python3.10
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: states:StartExecution
+              Resource: !Ref CalculationStateMachineARN
+      Events:
+        PostPipeline:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MROptimumAPI
+            Path: /pipeline
+            Method: post
+            Auth:
+              Authorizer: UserAuthorizer
+
+
+Outputs:
+  QueueJobApiUrl:
+    Description: URL of the queue‐job endpoint
+    Value: !Sub "https://${MROptimumAPI}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/pipeline"
+    Export:
+      Name: !Sub "${AWS::StackName}-QueueJobApiUrl"
+
+  ApiId:
+    Description: API Gateway ID
+    Value: !Ref MROptimumAPI
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiId"
+
