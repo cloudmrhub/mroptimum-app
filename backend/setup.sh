@@ -1,4 +1,5 @@
-PWD=$(pwd)
+MYROOT=$(pwd)
+echo "Current working directory: $MYROOT"
 
 # 1) Set AWS region & account ID
 AWS_REGION="us-east-1"
@@ -51,25 +52,23 @@ aws ecr get-login-password --region "${AWS_REGION}" --profile nyu\
 
 echo "✅ Docker authenticated to ECR"
 
-cd "$PWD/backend/calculation/src"
+cd "$MYROOT/calculation/src"
 # 6) Build & push the Fargate image (fargate-image stage in your Dockerfile)
 echo "⏳ Building and pushing Fargate image…"
-docker build --target fargate-image -t "${FARGATE_REPO}:latest"  -f Dockerfile .
+docker build -t "${FARGATE_REPO}:latest"  -f DockerfileFargate .
 docker tag "${FARGATE_REPO}:latest" "${FARGATE_IMAGE_URI}"
 docker push "${FARGATE_IMAGE_URI}"
 echo "✅ Fargate image pushed: ${FARGATE_IMAGE_URI}"
 
 
-# 7) Build & push the Lambda image (lambda-image stage)
-echo "⏳ Building and pushing Lambda image…"
-docker build --target lambda-image \
-  -t "${LAMBDA_REPO}:latest" \
-  -f Dockerfile .
+# # 7) Build & push the Lambda image (lambda-image stage)
+# echo "⏳ Building and pushing Lambda image…"
+# docker build -t "${LAMBDA_REPO}:latest" -f DockerfileLambda .
   
 
-docker tag "${LAMBDA_REPO}:latest" "${LAMBDA_IMAGE_URI}"
-docker push "${LAMBDA_IMAGE_URI}"
-echo "✅ Lambda image pushed: ${LAMBDA_IMAGE_URI}"
+# docker tag "${LAMBDA_REPO}:latest" "${LAMBDA_IMAGE_URI}"
+# docker push "${LAMBDA_IMAGE_URI}"
+# echo "✅ Lambda image pushed: ${LAMBDA_IMAGE_URI}"
 
 
 # 8) Summarize
@@ -80,7 +79,12 @@ echo " Fargate Image URI:  ${FARGATE_IMAGE_URI}"
 echo "----------------------------------"
 
 
-cd $PWD
+cd $MYROOT
+echo "Current working directory: $MYROOT   " 
+pwd
+
+echo "Setting up AWS resources for mroptimum-app-test stack..."
+# 9) Set up AWS resources for the stack
 VPC=$(aws ec2 describe-vpcs   --query "Vpcs[0].VpcId" --output text --profile nyu)
 
 echo VPC=$VPC
@@ -127,7 +131,10 @@ SECURITY_GROUP=$(aws ec2 describe-security-groups \
 echo SECURITY_GROUP=$SECURITY_GROUP
 
 
- sam build --profile nyu --use-container
+
+cd $MYROOT
+pwd
+sam build --profile nyu --use-container
 
 
  sam deploy \

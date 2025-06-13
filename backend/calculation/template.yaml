@@ -57,9 +57,13 @@ Resources:
     Properties:
       PackageType: Image
       ImageUri: !Ref LambdaImageUri
+      # ImageConfig:
+      #   Command:
+      #     - app.handler
       Timeout: 900
-      MemorySize: 10240
-
+      MemorySize: 4096
+      EphemeralStorage:
+        Size: 4096  
       # Grant this Lambda read/write access to all four buckets
       Policies:
 
@@ -69,12 +73,19 @@ Resources:
             BucketName: !Ref ResultsBucketPName
         - S3FullAccessPolicy:
             BucketName: !Ref FailedBucketPName
+        - S3FullAccessPolicy:
+            BucketName: mytestcmr
 
 
       Environment:
         Variables:
           ResultsBucketName: !Ref ResultsBucketPName
           FailedBucketName:  !Ref FailedBucketPName
+
+    Metadata:
+      Dockerfile: DockerfileLambda
+      DockerContext: src/
+      DockerTag: python3.10-v1
 
   #######################################################################
   # 2) PlatformSelectorFunction – decides “fargate” vs “lambda” based on task["name"]
@@ -264,13 +275,14 @@ Resources:
                 "SelectPlatform": {
                   "Type": "Task",
                   "Resource": "${PlatformSelectorFunctionArn}",
+                  "ResultPath": "$.platform",
                   "Next": "ChoiceState"
                 },
                 "ChoiceState": {
                   "Type": "Choice",
                   "Choices": [
                     {
-                      "Variable": "$.useFargate",
+                      "Variable": "$.platform.useFargate",
                       "BooleanEquals": true,
                       "Next": "RunViaFargate"
                     }
@@ -304,7 +316,6 @@ Resources:
                             {
                               "Name": "TASK_JSON",
                               "Value.$": "States.JsonToString($)"
-
                             }
                           ]
                         }
@@ -316,9 +327,9 @@ Resources:
               }
             }
           - PlatformSelectorFunctionArn: !GetAtt PlatformSelectorFunction.Arn
-            RunJobLambdaArn: !GetAtt RunJobLambda.Arn
-            ECSCluster: !Ref ECSCluster
-            RunJobTaskDefinitionArn: !Ref RunJobTaskDefinition
+            RunJobLambdaArn:           !GetAtt RunJobLambda.Arn
+            ECSCluster:                !Ref    ECSCluster
+            RunJobTaskDefinitionArn:   !Ref    RunJobTaskDefinition
             SubnetList:
               Fn::Sub: '["${SubnetId1}","${SubnetId2}"]'
             SecurityGroupList:

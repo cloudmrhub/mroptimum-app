@@ -7,7 +7,7 @@ import sys
 from pynico_eros_montin import pynico as pn
 
 def sanitize_for_json(data):
-    """Recursively sanitize data to make it JSON‐serializable."""
+    """Recursively sanitize data to make it JSON-serializable."""
     if isinstance(data, dict):
         return {k: sanitize_for_json(v) for k, v in data.items()}
     elif isinstance(data, list):
@@ -293,12 +293,13 @@ def handler(event, context, s3=None):
     """
     AWS Lambda entry point. Calls `do_process(...)` and returns its dict directly.
     """
+    print(f"Received event: {json.dumps(event, indent=2)}")
     return do_process(event, context,s3=s3)
 
 def main():
     """
     Fargate/Step Functions entry point.  
-    Expects the raw S3‐trigger JSON to be passed in via the FILE_EVENT environment variable.
+    Expects the raw S3-trigger JSON to be passed in via the FILE_EVENT environment variable.
     Exits with code 0 on success, or 1 on failure.
     """
     event_str = os.environ.get("FILE_EVENT")
