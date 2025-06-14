@@ -1,6 +1,8 @@
 MYROOT=$(pwd)
 echo "Current working directory: $MYROOT"
 
+STACK_NAME=mroptimum-app-test
+
 # 1) Set AWS region & account ID
 AWS_REGION="us-east-1"
 # ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
@@ -138,7 +140,7 @@ sam build --profile nyu --use-container
 
 
  sam deploy \
-  --stack-name mroptimum-app-test \
+  --stack-name "${STACK_NAME}" \
   --profile nyu \
   --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
   --resolve-image-repos \
@@ -152,3 +154,20 @@ sam build --profile nyu --use-container
     SubnetId2="${SUBNET2}" \
     SecurityGroupIds="${SECURITY_GROUP}" \
   --region "$AWS_REGION" \
+
+
+PARENT_OUTPUT=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME}" \
+  --query "Stacks[0].Outputs[?OutputKey=='QueueJobApiKeyID'].OutputValue" \
+  --output text\
+  --profile nyu)
+echo "ApiKeyId = ${PARENT_OUTPUT}"
+
+key=$(aws apigateway get-api-key \
+  --api-key "${PARENT_OUTPUT}" \
+  --include-value \
+  --query 'value' \
+  --output text \
+  --profile nyu)
+
+echo "ApiKey = ${key}"

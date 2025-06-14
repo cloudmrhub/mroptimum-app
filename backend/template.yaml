@@ -145,9 +145,21 @@ Outputs:
   CalculationStateMachineArn:
     Description: "ARN of the nested CalculationApp StateMachine"
     Value: !GetAtt CalculationApp.Outputs.StateMachineArn
+  QueueJobApiUrl:
+    Description: "Queue-Job API endpoint URL"
+    Value: !GetAtt APIApp.Outputs.QueueJobApiUrl
+    Export:
+      Name: !Sub "${AWS::StackName}-QueueJobApiUrl"
+
+
   # ResultsBucketName:
   #   Description: "Name of the S3 bucket for results"
   #   Value: !GetAtt ArkApp.Outputs.ResultsBucket
   # FailedBucketName:
   #   Description: "Name of the S3 bucket for failed jobs"
   #   Value: !GetAtt ArkApp.Outputs.FailedBucket
+
+  QueueJobApiKeyID:
+    Description: "API Key for Queue-Job API"
+    Value: !GetAtt APIApp.Outputs.QueueJobApiKeyID
+  
