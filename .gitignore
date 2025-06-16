@@ -254,3 +254,5 @@ Frontend/*.toml
 
 Backend/samconfig.toml
 run-job-python-FG.zip
+synthetic_twix.dat
+test_output.dat
