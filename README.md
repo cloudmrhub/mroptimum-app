@@ -143,7 +143,7 @@ These variables are initialized in `setup.sh` and then passed into SAM:
 
 ---
 
-## 5. Final Architecture Diagram
+## 5. Architecture Diagram
 
                                                     ┌─────────────┐
                                               ┌────▶│ Results S3  │

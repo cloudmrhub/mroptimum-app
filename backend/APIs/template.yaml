@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: MROptimum Queue‐Job API
+Description: MROptimum Queue Job API
 
 Parameters:
   CortexHost:
@@ -132,3 +132,9 @@ Outputs:
     Value: !Ref MROptimumAPIApiKey
     Export:
       Name: !Sub "${AWS::StackName}-QueueJobApiKeyID"
+
+  UserAuthorizerFunctionARN:
+    Description: ARN of the User Authorizer function
+    Value: !GetAtt UserAuthorizerFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-UserAuthorizerFunctionARN"

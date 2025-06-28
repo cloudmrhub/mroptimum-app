@@ -134,18 +134,18 @@ Resources:
             Bucket: !Ref FailedBucket
             Events: s3:ObjectCreated:*
 
-# Outputs:
-#   ResultsBucket:
-#     Description: "Name of the Results bucket"
-#     Value: !Ref ResultsBucket
-#     Export:
-#       Name: !Sub "${AWS::StackName}-ResultsBucket"
+Outputs:
+  ResultsBucket:
+    Description: "Name of the Results bucket"
+    Value: !Ref ResultsBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ResultsBucket"
 
-#   FailedBucket:
-#     Description: "Name of the Failed bucket"
-#     Value: !Ref FailedBucket
-#     Export:
-#       Name: !Sub "${AWS::StackName}-FailedBucket"
+  FailedBucket:
+    Description: "Name of the Failed bucket"
+    Value: !Ref FailedBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-FailedBucket"
 
 
 # same stack !GetAtt ArkApp.Outputs.FailedBucket

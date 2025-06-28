@@ -102,7 +102,7 @@ Resources:
         Rules:
         - ObjectOwnership: BucketOwnerPreferred
 
-  # this app is the one the routes the fialed bucket and the reuslt bucket to cloudmr
+  # this app is the one the routes the fialed bucket and the result bucket to cloudmr
   ArkApp:
     Type: AWS::Serverless::Application
     Properties:
@@ -141,6 +141,18 @@ Resources:
         StageName: !Ref StageName
         CalculationStateMachineARN: !GetAtt CalculationApp.Outputs.StateMachineArn
 
+  FrontendApp:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: frontend/template.yaml
+      Parameters:
+        CortexHost: !Ref CortexHost
+        StageName: !Ref StageName
+        ResultsBucketPName: !GetAtt ArkApp.Outputs.ResultsBucket
+        FailedBucketPName: !GetAtt ArkApp.Outputs.FailedBucket
+        DataBucketPName: !Ref DataBucket
+        UserAuthorizerFunctionARN: !GetAtt APIApp.Outputs.UserAuthorizerFunctionARN
+        
 Outputs:
   CalculationStateMachineArn:
     Description: "ARN of the nested CalculationApp StateMachine"
@@ -150,16 +162,80 @@ Outputs:
     Value: !GetAtt APIApp.Outputs.QueueJobApiUrl
     Export:
       Name: !Sub "${AWS::StackName}-QueueJobApiUrl"
-
-
-  # ResultsBucketName:
-  #   Description: "Name of the S3 bucket for results"
-  #   Value: !GetAtt ArkApp.Outputs.ResultsBucket
-  # FailedBucketName:
-  #   Description: "Name of the S3 bucket for failed jobs"
-  #   Value: !GetAtt ArkApp.Outputs.FailedBucket
-
+  
   QueueJobApiKeyID:
     Description: "API Key for Queue-Job API"
     Value: !GetAtt APIApp.Outputs.QueueJobApiKeyID
-  
+
+  DeleteJobApi:
+    Description: "API Gateway endpoint URL for Delete function"
+    Value: !GetAtt FrontendApp.Outputs.DeleteJobApi
+    Export:
+      Name: !Sub "${AWS::StackName}-DeleteJobApi"
+
+  GetZipApi:
+    Description: "API Gateway endpoint URL for GetZip function"
+    Value: !GetAtt FrontendApp.Outputs.GetZipApi
+    Export:
+      Name: !Sub "${AWS::StackName}-GetZipApi"
+
+  DataReadApi:
+    Description: "API Gateway endpoint URL for DataRead function"
+    Value: !GetAtt FrontendApp.Outputs.DataReadApi
+    Export:
+      Name: !Sub "${AWS::StackName}-DataReadApi"
+
+  DeleteFileApi:
+    Description: "API Gateway endpoint URL for DeleteFile function"
+    Value: !GetAtt FrontendApp.Outputs.DeleteFileApi
+    Export:
+      Name: !Sub "${AWS::StackName}-DeleteFileApi"
+
+  UpdateFileApi:
+    Description: "API Gateway endpoint URL for UpdateFile function"
+    Value: !GetAtt FrontendApp.Outputs.UpdateFileApi
+    Export:
+      Name: !Sub "${AWS::StackName}-UpdateFileApi"
+
+  UploadRequestApi:
+    Description: "API Gateway endpoint URL for UploadRequest function"
+    Value: !GetAtt FrontendApp.Outputs.UploadRequestApi
+    Export:
+      Name: !Sub "${AWS::StackName}-UploadRequestApi"
+
+  UploadInitiateApi:
+    Description: "API Gateway endpoint URL for UploadInitiate function"
+    Value: !GetAtt FrontendApp.Outputs.UploadInitiateApi
+    Export:
+      Name: !Sub "${AWS::StackName}-UploadInitiateApi"
+
+  DownloadRequestApi:
+    Description: "API Gateway endpoint URL for DownloadRequest function"
+    Value: !GetAtt FrontendApp.Outputs.DownloadRequestApi
+    Export:
+      Name: !Sub "${AWS::StackName}-DownloadRequestApi"
+
+  UploadFinalizeApi:
+    Description: "API Gateway endpoint URL for UploadFinalize function"
+    Value: !GetAtt FrontendApp.Outputs.UploadFinalizeApi
+    Export:
+      Name: !Sub "${AWS::StackName}-UploadFinalizeApi"
+
+  UploadResultsInitiateApi:
+    Description: "API Gateway endpoint URL for UploadResultsInitiate function"
+    Value: !GetAtt FrontendApp.Outputs.UploadResultsInitiateApi
+    Export:
+      Name: !Sub "${AWS::StackName}-UploadResultsInitiateApi"
+
+  UploadResultsFinalizeApi:
+    Description: "API Gateway endpoint URL for UploadResultsFinalize function"
+    Value: !GetAtt FrontendApp.Outputs.UploadResultsFinalizeApi
+    Export:
+      Name: !Sub "${AWS::StackName}-UploadResultsFinalizeApi"
+
+  FrontendAPI:
+    Description: "Base API Gateway endpoint URL for Frontend"
+    Value: !GetAtt FrontendApp.Outputs.FrontendAPI
+    Export:
+      Name: !Sub "${AWS::StackName}-FrontendAPI"
+
