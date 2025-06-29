@@ -220,7 +220,7 @@ def do_process(event, context=None, s3=None):
         ErrBase.ensureDirectoryExistence()
 
         # 1) Write event.json
-        E_event = ErrBase.copy()  # a copy of the ERROR_DIR path
+        E_event = ErrBase.duplicate()  # a copy of the ERROR_DIR path
         E_event.changeFileName("event")
         E_event.changeExtension("json")
         try:
@@ -230,7 +230,7 @@ def do_process(event, context=None, s3=None):
             print(f"couldn't write event JSON at {E_event.getPosition()}")
 
         # 2) Write options.json (the original J)
-        E_opts = ErrBase.copy()
+        E_opts = ErrBase.duplicate()
         E_opts.changeFileName("options")
         E_opts.changeExtension("json")
         try:
@@ -240,7 +240,7 @@ def do_process(event, context=None, s3=None):
             print(f"couldn't write options JSON at {E_opts.getPosition()}")
 
         # 3) Write error.txt
-        E_txt = ErrBase.copy()
+        E_txt = ErrBase.duplicate()
         E_txt.changeFileName("error")
         E_txt.changeExtension("txt")
         with open(E_txt.getPosition(), "w") as f:
@@ -257,7 +257,7 @@ def do_process(event, context=None, s3=None):
                 "log": L.log
             }
         }
-        E_info = ErrBase.copy()
+        E_info = ErrBase.duplicate()
         E_info.changeFileName("info")
         E_info.changeExtension("json")
         try:

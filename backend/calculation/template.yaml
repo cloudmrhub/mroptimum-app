@@ -217,14 +217,33 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
+              - Sid:  S3GetAndPutData
+                Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:PutObject
                 Resource:
                   - !Sub "arn:aws:s3:::${DataBucketPName}/*"
+              - Sid:  S3PutResults
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
                   - !Sub "arn:aws:s3:::${ResultsBucketPName}/*"
+              - Sid:  S3PutFailed
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
                   - !Sub "arn:aws:s3:::${FailedBucketPName}/*"
+              - Sid:  S3FullAccessMyTestCmr
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - "arn:aws:s3:::mytestcmr/*"
+                  - "arn:aws:s3:::mytestcmr"
 
   #######################################################################
   # 6) ECS Fargate Task Definition (runs app.py→main())
@@ -248,6 +267,10 @@ Resources:
             # These get overridden by Step Functions at runtime
             - Name: TASK_JSON
               Value: ""  
+            - Name: ResultsBucketName
+              Value: !Ref ResultsBucketPName
+            - Name: FailedBucketName
+              Value: !Ref FailedBucketPName
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -314,7 +337,7 @@ Resources:
                           "Name": "run-job-container",
                           "Environment": [
                             {
-                              "Name": "TASK_JSON",
+                              "Name": "FILE_EVENT",
                               "Value.$": "States.JsonToString($)"
                             }
                           ]
