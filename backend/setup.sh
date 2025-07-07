@@ -174,3 +174,20 @@ echo "ApiKey = ${key}"
 
 
 
+
+
+QueueJobApiUrl=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME}" \
+  --query "Stacks[0].Outputs[?OutputKey=='QueueJobApiUrl'].OutputValue" \
+  --output text\
+  --profile nyu)
+echo "QueueJobApiUrl = ${QueueJobApiUrl}"
+
+FrontendApiUrl=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME}" \
+  --query "Stacks[0].Outputs[?OutputKey=='FrontendAPI'].OutputValue" \
+  --output text\
+  --profile nyu)
+echo "FrontendApiUrl = ${FrontendApiUrl}"
+
+echo "Setup complete! 🎉"
