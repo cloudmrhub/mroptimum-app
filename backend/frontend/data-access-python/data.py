@@ -127,27 +127,29 @@ def read_data(event, context):
 
 
 def deleteData(event, context):
-    # get data_id from aws api gateway event get
+     # get data_id from aws api gateway event get
     
-    print("event")
-    print(event['queryStringParameters'])
-    s3_client = boto3.client('s3')
+    print("=== deleteData event ===")
+
     http_method = event.get('httpMethod') or event['requestContext']['http']['method']
 
-    # Handle CORS preflight
+    # 2) Handle CORS preflight
     if http_method.upper() == 'OPTIONS':
         return fixCORS({
             'statusCode': 200,
-            'body': ''  # no payload for preflight
+            'body': ''
         })
 
-    file_id = event['queryStringParameters']['fileid']
-    if file_id is None:
-        # return "pipeline_id is required" in a json format with anerror code status
+    # 3) Pull the fileid from the path, not the query
+    path_params = event.get('pathParameters') or {}
+    file_id = path_params.get('fileid')
+    if not file_id:
         return fixCORS({
-            'statusCode':405 ,
-            'body': json.dumps('data id is required')
+            'statusCode': 400,
+            'body': json.dumps({'error': 'fileid path parameter is required'})
         })
+
+    # 4) Call your backend deleteData
     # Get the headers from the event object.
     headers = event['headers']
     # Get the authorization header.

@@ -2,54 +2,48 @@ Parameters:
   GithubToken:
     Type: String
     Description: Access token to GitHub
-    Default: xxxx
   CloudmrServer:
     Type: String
-    Description: "CLOUDMR_SERVER"
-  CAMRIEServer:
+    Description: Base URL for CloudMR core API
+  MROptimumServer:
     Type: String
-    Description: "MRO_SERVER"
+    Description: Base URL for MR Optimum “readdata” API
   QueueServer:
     Type: String
-    Description: "QUEUE_SERVER"
-  ProfileServer:
-    Type: String
-    Description: "PROFILE_SERVER"
-  ApiUrl:
-    Type: String
-    Description: "API_URL"
-    Default: "XXXXXXXXXXXXXXXXXXXXXXX"
+    Description: Base URL for MR Optimum “pipeline” API
   ApiToken:
     Type: String
-    Description: "API_TOKEN"
+    Description: Bearer token for APIs
 
 Resources:
+
   MROptimumFrontend:
     Type: AWS::Amplify::App
     Properties:
       AccessToken: !Ref GithubToken
-      Name: !Sub "MROptimum ${AWS::StackName}"
-      Platform: "WEB"
-      Repository: "https://github.com/cloudmrhub/camrie-webgui"
-      Tags:
-        - Key: owner
-          Value: cloudmrhub
-        - Key: maintainer
-          Value: montie01
-        - Key: project
-          Value: camrie-v2
-        - Key: team
-          Value: cloudmrhub
-        - Key: status
-          Value: prod
+      Name: !Sub "MROptimum-${AWS::StackName}"
+      Platform: WEB
+      Repository: https://github.com/cloudmrhub/mroptimum-webgui
 
   MainBranch:
     Type: AWS::Amplify::Branch
     Properties:
       AppId: !GetAtt MROptimumFrontend.AppId
-      BranchName: "main"
+      BranchName: main
       EnableAutoBuild: true
-      BuildSpec: !Sub |
+
+      # only the env‐vars you actually use
+      EnvironmentVariables:
+        - Name: CLOUDMR_SERVER
+          Value: !Ref CloudmrServer
+        - Name: MRO_SERVER
+          Value: !Ref MROptimumServer
+        - Name: MRO_JOB
+          Value: !Ref QueueServer
+        - Name: API_TOKEN
+          Value: !Ref ApiToken
+
+      BuildSpec: |
         version: 1
         frontend:
           phases:
@@ -58,8 +52,7 @@ Resources:
                 - yarn install
             build:
               commands:
-                - node setup/generate-env.js 
-                - cat src/env.ts
+                - node setup/generate-env.js
                 - yarn build
           artifacts:
             baseDirectory: build
@@ -68,12 +61,5 @@ Resources:
           cache:
             paths:
               - node_modules/**/*
-        env:
-          variables:
-            CLOUDMR_SERVER: ${CloudmrServer}
-            MRO_SERVER: ${MroServer}
-            PROFILE_SERVER: ${ProfileServer}
-            API_URL: ${ApiUrl}
-            API_TOKEN: ${ApiToken}
-      Framework: "WEB"
-      Stage: "PRODUCTION"
+      Framework: WEB
+      Stage: PRODUCTION

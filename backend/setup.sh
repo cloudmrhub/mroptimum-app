@@ -171,3 +171,6 @@ key=$(aws apigateway get-api-key \
   --profile nyu)
 
 echo "ApiKey = ${key}"
+
+
+
