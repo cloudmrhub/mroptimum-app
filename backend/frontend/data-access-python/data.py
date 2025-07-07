@@ -128,6 +128,7 @@ def read_data(event, context):
 
 def deleteData(event, context):
     # get data_id from aws api gateway event get
+    
     print("event")
     print(event['queryStringParameters'])
     s3_client = boto3.client('s3')

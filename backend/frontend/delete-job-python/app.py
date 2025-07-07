@@ -20,6 +20,19 @@ def getHeadersForRequestsWithToken(token):
     
 def lambda_handler(event, context):
     
+    
+    # if options method is called, return CORS headers.
+    if event.get('httpMethod') == 'OPTIONS':
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': '*',
+                'Access-Control-Allow-Methods': 'GET,OPTIONS'
+            },
+            'body': ''
+        }
+    # Check if the event has a body.
     # Get the headers from the event object.
     headers = event['headers']
     # Get the authorization header.
@@ -36,7 +49,7 @@ def lambda_handler(event, context):
         ID=str(ID)
     pipelineAPI+="/"+ID
     
-    r2=requests.post(pipelineAPI, headers=getHeadersForRequestsWithToken(authorization_header))
+    r2=requests.post(pipelineAPI, headers=getHeadersForRequestsWithToken(authorization_header),verify=False)
     try:
         R=r2.json()
         print(R)
