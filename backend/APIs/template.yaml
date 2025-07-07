@@ -116,7 +116,7 @@ Resources:
 
 Outputs:
   QueueJobApiUrl:
-    Description: URL of the queue‐job endpoint
+    Description: URL of the queue-job endpoint
     Value: !Sub "https://${MROptimumAPI}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/pipeline"
     Export:
       Name: !Sub "${AWS::StackName}-QueueJobApiUrl"
@@ -128,7 +128,7 @@ Outputs:
       Name: !Sub "${AWS::StackName}-ApiId"
 
   QueueJobApiKeyID:
-    Description: API Key for the queue‐job endpoint
+    Description: API Key for the queue-job endpoint
     Value: !Ref MROptimumAPIApiKey
     Export:
       Name: !Sub "${AWS::StackName}-QueueJobApiKeyID"

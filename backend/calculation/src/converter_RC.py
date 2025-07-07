@@ -174,11 +174,11 @@ def compare_images(original, reconstructed):
 def main():
     # Parameters
     image_path = None  # Use synthetic image
-    n_samples = 256
+    n_samples = 512
     n_lines = 256
     n_channels = 8
     n_slices = 8
-    twix_file = 'test_output.dat'
+    twix_file = 'test_output.dat'   
     
     # Generate k-space data and original image
     kspace, original_img = generate_kspace_from_image(image_path, n_samples, n_lines, n_channels, n_slices)
