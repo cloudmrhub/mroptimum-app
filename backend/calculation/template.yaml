@@ -95,31 +95,66 @@ Resources:
     Properties:
       Runtime: python3.10
       Handler: index.lambda_handler
-      Timeout: 10
+      Timeout: 30
       MemorySize: 128
+      # InlineCode: |
+      #   import json
+
+      #   def lambda_handler(event, context):
+      #       """
+      #       Expecting `event` to contain at least:
+      #         event["task"]["name"] → string
+      #       If name.lower() is 'pmr' or 'mr', then we ask for Fargate.
+      #       Otherwise, we choose Lambda.
+      #       """
+      #       try:
+      #           name = event["task"]["name"]
+      #       except Exception:
+      #           # If for whatever reason 'task' or 'name' is missing, default to Lambda.
+      #           return { "useFargate": False }
+
+      #       name_lower = name.lower()
+      #       if name_lower in ("pmr", "mr"):
+      #           # Use Fargate
+      #           return { "useFargate": True }
+      #       else:
+      #           # Use Lambda
+      #           return { "useFargate": False }
       InlineCode: |
         import json
 
         def lambda_handler(event, context):
             """
-            Expecting `event` to contain at least:
-              event["task"]["name"] → string
-            If name.lower() is 'pmr' or 'mr', then we ask for Fargate.
-            Otherwise, we choose Lambda.
+            Expecting event["task"]["name"] → string
+            and mask.method = 'espirit' anywhere under reconstructor.options
             """
+            # 1) Default to Lambda if no name
             try:
                 name = event["task"]["name"]
-            except Exception:
-                # If for whatever reason 'task' or 'name' is missing, default to Lambda.
-                return { "useFargate": False }
+            except (KeyError, TypeError):
+                return {"useFargate": False}
 
-            name_lower = name.lower()
-            if name_lower in ("pmr", "mr"):
-                # Use Fargate
-                return { "useFargate": True }
-            else:
-                # Use Lambda
-                return { "useFargate": False }
+            # 2) Find any mask.method == 'espirit'
+            opts = (event.get("task", {})
+                         .get("options", {})
+                         .get("reconstructor", {})
+                         .get("options", {}))
+            mask_entry = None
+            if isinstance(opts, dict):
+                # direct mask
+                mask_entry = opts.get("mask")
+                # or nested under sensitivityMap
+                if mask_entry is None:
+                    sens_opts = opts.get("sensitivityMap", {}).get("options", {})
+                    mask_entry = sens_opts.get("mask")
+            method = mask_entry.get("method") if isinstance(mask_entry, dict) else None
+            if isinstance(method, str) and method.lower() == "espirit":
+                return {"useFargate": True}
+
+            # 3) Fallback to name-based
+            if name.lower() in ("pmr", "mr"):
+                return {"useFargate": True}
+            return {"useFargate": False}
 
       Policies: []
 
