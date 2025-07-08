@@ -31,7 +31,7 @@ Parameters:
   UserAuthorizerFunctionARN:
     Type: String
     Description: The ARN of the Lambda function to use as the authorizer for the API Gateway
-    Default: 'arn:aws:lambda:us-east-1:469266894233:function:camrie-app-MROptimumAPIApp-TB5-UserAuthorizerFunction-JhtqqigUYnL9'
+    Default: 'arn:aws:lambda:us-east-1:469266894233:function:mro-app-MROptimumAPIApp-TB5-UserAuthorizerFunction-JhtqqigUYnL9'
 
 Globals:
   Function:
@@ -156,6 +156,13 @@ Resources:
             BucketName: mytestcmr
         - S3FullAccessPolicy:
             BucketName: !Ref FailedBucketPName
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource:
+              - arn:aws:s3:::*        # list buckets if you need it
+              - arn:aws:s3:::*/*      # get objects from any
       Events:
         GetZipAPI:
           Type: Api
@@ -318,6 +325,13 @@ Resources:
       Policies:
         - S3FullAccessPolicy:
             BucketName: !Ref ResultsBucketPName
+        - Statement:
+            Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource:
+              - arn:aws:s3:::*        # list buckets if you need it
+              - arn:aws:s3:::*/*      # get objects from any
       Layers:
           - !Ref UploadRequestFunctionLayer
       Events:

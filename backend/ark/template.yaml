@@ -8,11 +8,11 @@ Parameters:
   ResultsBucketPName:
     Type: String
     Description: "The fixed name for the Results bucket"
-    Default: "camrie-results"
+    Default: "mroptimum-results"
   FailedBucketPName:
     Type: String
     Description: "The fixed name for the Failed bucket"
-    Default: "camrie-failed"
+    Default: "mroptimum-failed"
   PipelineCompleted:
     Type: String
     Description: API endpoint for pipeline completed
@@ -119,7 +119,6 @@ Resources:
           PipelineCompleted: !Ref PipelineCompleted
           PipelineFailed: !Ref PipelineFailed
           PipelineScheduler: !Ref PipelineScheduler
-          Application: CAMRIE
 
          
       Events:

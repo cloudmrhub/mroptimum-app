@@ -48,7 +48,10 @@ def lambda_handler(event, context):
     if pipelineid==None:
         alias=J["headers"]["options"]["alias"]
         data2={"application":application,"alias":alias}
-        r2=requests.post(pipelinescheduleAPI, data=json.dumps(data2), headers=getHeadersForRequestsWithToken(token))
+        print("data2", data2)
+        pipelinescheduleAPI = os.getenv("PipelineScheduler")
+        print("pipelinescheduleAPI", pipelinescheduleAPI)
+        r2=requests.post(pipelinescheduleAPI, data=json.dumps(data2), headers=getHeadersForRequestsWithToken(token),verify=False)
         R=r2.json()
         pipelineid = R["pipeline"]
         

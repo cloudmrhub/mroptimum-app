@@ -255,8 +255,8 @@ Resources:
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
-      Cpu: "1024"
-      Memory: "2048"
+      Cpu: "4096"  # 4 vCPUs
+      Memory: "16384"  # 16 GB
       ExecutionRoleArn: !GetAtt FargateExecutionRole.Arn
       TaskRoleArn: !GetAtt FargateTaskRole.Arn
       ContainerDefinitions:

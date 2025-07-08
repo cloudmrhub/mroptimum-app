@@ -1,7 +1,5 @@
-MYROOT=$(pwd)
-echo "Current working directory: $MYROOT"
-
 STACK_NAME=mroptimum-app-test
+SPINFRONTEND=true
 
 # 1) Set AWS region & account ID
 AWS_REGION="us-east-1"
@@ -12,6 +10,11 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text --profil
 # 2) ECR repo names (you can change these)
 LAMBDA_REPO="mroptimum-run-job-lambda"
 FARGATE_REPO="mroptimum-run-job-fargate"
+
+
+MYROOT=$(pwd)
+echo "Current working directory: $MYROOT"
+
 
 # 3) Full ECR URIs
 LAMBDA_IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${LAMBDA_REPO}:latest"
@@ -190,4 +193,14 @@ FrontendApiUrl=$(aws cloudformation describe-stacks \
   --profile nyu)
 echo "FrontendApiUrl = ${FrontendApiUrl}"
 
+
+
+if $SPINFRONTEND; then
+  echo "Frontend is already running."
+else
+  echo "Starting frontend..."
+  cd "$MYROOT/frontend"
+  npm install
+  npm run dev &
+fi
 echo "Setup complete! 🎉"
