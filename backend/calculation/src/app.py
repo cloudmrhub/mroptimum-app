@@ -123,18 +123,37 @@ def do_process(event, context=None, s3=None):
 
         # 5) Get the task dict
         T = J["task"]
-
+        NOISE_AVAILABLE=False
+        SIGNAL_AVAILABLE=False
+        MULTIRAID= False
         # 6) If noise or signal == S3 type, download locally
         recon_opts = T["options"]["reconstructor"]["options"]
-        noise_opts  = recon_opts["noise"]["options"]
-        signal_opts = recon_opts["signal"]["options"]
-
-        if noise_opts.get("type") == "s3":
-            T["options"]["reconstructor"]["options"]["noise"]["options"] = s3FileTolocal(noise_opts, s3)
-            L.append("noise file downloaded locally")
-        if signal_opts.get("type") == "s3":
-            T["options"]["reconstructor"]["options"]["signal"]["options"] = s3FileTolocal(signal_opts, s3)
-            L.append("signal file downloaded locally")
+        try:
+            noise_opts  = recon_opts["noise"]["options"]
+            if noise_opts.get("type") == "s3":
+                T["options"]["reconstructor"]["options"]["noise"]["options"] = s3FileTolocal(noise_opts, s3)
+                L.append("noise file downloaded locally")   
+                NOISE_AVAILABLE = True 
+        except:
+            # If "noise" is not present, we skip this step
+            L.append("no noise options found, skipping download")
+            
+        try:
+            signal_opts = recon_opts["signal"]["options"]        
+            if signal_opts.get("type") == "s3":
+                T["options"]["reconstructor"]["options"]["signal"]["options"] = s3FileTolocal(signal_opts, s3)
+                L.append("signal file downloaded locally")
+                SIGNAL_AVAILABLE = True
+                if "vendor" in T["options"]["reconstructor"]["options"]["signal"]["options"]:
+                    if T["options"]["reconstructor"]["options"]["signal"]["options"]["vendor"].lower() == "siemens":
+                        # If vendor is mroptimum, we can use the signal options directly
+                        L.append("signal vendor is mroptimum, using options directly")
+                        MULTIRAID= T["options"]["reconstructor"]["options"]["signal"]["options"].get("multiraid", False)
+                    
+        except:
+            # If "signal" is not present, we skip this step
+            L.append("no signal options found, skipping download")
+            
 
         # 7) Write updated T → /tmp/<random>.json for mrotools.snr
         JO = pn.createRandomTemporaryPathableFromFileName("a.json")
@@ -163,6 +182,13 @@ def do_process(event, context=None, s3=None):
             parallel_arg = "--parallel"
         else:
             parallel_arg = "--no-parallel"
+            
+        # check noise and signal availability
+        if (NOISE_AVAILABLE or MULTIRAID ) and SIGNAL_AVAILABLE:
+            L.append("noise and signal available, proceeding with computation")
+        else:
+            L.append("WARNING: noise or signal not available, using --no-parallel")
+            raise Exception("Noise or signal not available, cannot proceed with computation")
 
         cmd = (
             f"python -m mrotools.snr "

@@ -3,7 +3,7 @@ import os
 import boto3
 from app import handler
 import pynico_eros_montin.pynico as pn
-E=pn.Pathable("backend/calculation/ac_brain_multislice.json")
+E=pn.Pathable("backend/calculation/ac_multiriad.json")
 E=E.readJson()
 import sys
 import cmtools.cmaws as cmaws

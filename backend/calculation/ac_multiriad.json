@@ -1,0 +1,67 @@
+{
+    "task": {
+        "name": "ac",
+        "queued": false,
+        "version": "v0",
+        "acquisition": 2,
+        "type": "snr",
+        "options": {
+            "reconstructor": {
+                "type": "recon",
+                "options": {
+                    "signalMultiRaid": false,
+                    "sensitivityMap": {
+                        "type": "sensitivityMap",
+                        "name": "inner",
+                        "id": 2,
+                        "options": {
+                            "loadSensitivity": false,
+                            "sensitivityMapMethod": "inner",
+                            "mask": {
+                                "method": "no"
+                            }
+                        },
+                        "correction": {
+                            "useCorrection": false
+                        },
+                        "gfactor": false,
+                        "signal": {
+                            "type": "file",
+                            "id": 29,
+                            "options": {
+                                "type": "s3",
+                                "filename": "Brain_Signal_SingleSlice.dat",
+                                "options": {},
+                                "multiraid": true,
+                                "bucket": "mytestcmr",
+                                "key": "meas_MID02699_FID183827_gre_mSENSE_2.dat",
+                                "vendor": "Siemens"
+                            }
+                        },
+                        "decimate": false
+                    },
+                    "id": 2,
+                    "name": "sense"
+                },
+                "NR": 6,
+                "boxSize": 9
+            },
+            "files": [
+                "signal"
+            ],
+            "id": 0
+        },
+        "output": {
+            "gfactor": true,
+            "matlab": true,
+            "coilsensitivity": true
+        },
+        "application": "MR Optimum",
+        "alias": "AM_sense_custom_mask_S2_x0-0",
+        "pipeline": "b6078683-8d7f-3b5c-aeb1-cd9698ad571d",
+        "token": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwOlwvXC9jbXIuY2xvdWRtcmh1Yi5jb21cL2FwaVwvYXV0aFwvbG9naW4iLCJpYXQiOjE3NTQwODQ3MDUsImV4cCI6MTc1NDE3MTEwNSwibmJmIjoxNzU0MDg0NzA1LCJqdGkiOiI2eXZTS3JOQnZrc0VoQTAwIiwic3ViIjoxMDAxOSwicHJ2IjoiODdlMGFmMWVmOWZkMTU4MTJmZGVjOTcxNTNhMTRlMGIwNDc1NDZhYSJ9.-qufvNLhnIk3F7_FHN_eO_98Hs_20FHQxjRMuuNLXQw",
+        "platform": {
+            "useFargate": false
+        }
+    }
+}
