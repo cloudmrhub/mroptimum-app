@@ -11,9 +11,11 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN pip install git+https://github.com/cloudmrhub/mroptimum-tools.git
 RUN pip install git+https://github.com/erosmontin/pynico.git
-
 # Copy application code
 COPY app.py lambda_function.py
+
+RUN mkdir -p /tmp/.matplotlib && chmod 777 /tmp/.matplotlib
+ENV MPLCONFIGDIR=/tmp/.matplotlib
 
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt
 RUN date > /var/task/last_build_date.txt

@@ -1,8 +1,8 @@
-numpy
 boto3
+numpy
 requests
 jsonpickle
+
 mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git
 pynico_eros_montin @ git+https://github.com/erosmontin/pynico.git
-
-
+cmtools @ git+https://github.com/cloudmrhub/cloudmr-tools.git

@@ -13,9 +13,11 @@ RUN pip install --upgrade pip \
  && pip install -r requirements.txt \
  && pip install git+https://github.com/cloudmrhub/mroptimum-tools.git
 RUN pip install git+https://github.com/erosmontin/pynico.git
+RUN echo "Installed Python packages"
 # Copy your application code
 COPY . .
-
+RUN mkdir -p /tmp/.matplotlib && chmod 777 /tmp/.matplotlib
+ENV MPLCONFIGDIR=/tmp/.matplotlib
 # Ensure SSL certs are found
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt
 

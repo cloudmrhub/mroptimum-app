@@ -56,7 +56,7 @@ Resources:
           UsagePlanName: !Sub "${AWS::StackName}-QueueJobPlan"
           Description:   "Usage plan for MROptimum API"
           Quota:
-            Limit: 1000
+            Limit: 20000
             Period: MONTH
           Throttle:
             BurstLimit: 1000

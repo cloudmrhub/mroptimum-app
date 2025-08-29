@@ -204,3 +204,5 @@ else
   npm run dev &
 fi
 echo "Setup complete! 🎉"
+
+echo $(date)
