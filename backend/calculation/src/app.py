@@ -276,9 +276,7 @@ def do_process(event, context=None, s3=None):
     except Exception as error:
         # On *any* exception, bundle up logs, save event+options+error, zip "OUT", and upload to "failed" bucket.
         error_formatted = traceback.format_exc()
-        for line in error_formatted:
-            logger.write(line)
-        error_formatted = "\n".join(error_formatted)
+        logger.write(error_formatted)
         # logger.write("EXCEPTION CAUGHT: " + str(e))
 
         # Prepare an "error" directory under /tmp so we can capture event / options / error.txt / info.json
@@ -317,7 +315,8 @@ def do_process(event, context=None, s3=None):
             "headers": {
                 "options": {"token": token, "pipelineid": pipelineid},
                 "log": logger.log,
-            }
+            },
+            "user_id": user_id,
         }
         info_file = error_dir / "info.json"
         try:
