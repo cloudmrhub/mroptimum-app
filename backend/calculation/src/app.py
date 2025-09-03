@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 import json
+import traceback
 import boto3
 import os
 import shutil
 import sys
+from pathlib import Path
+import tempfile
+import uuid
+
 from pynico_eros_montin import pynico as pn
+
+
+class PrintingLogger(pn.Log):
+    def write(self, message, type=None, settings=None):
+        print(message)
+        return super().append(str(message), type, settings)
+
 
 def sanitize_for_json(data):
     """Recursively sanitize data to make it JSON-serializable."""
@@ -17,35 +29,50 @@ def sanitize_for_json(data):
     else:
         return str(data)
 
+
 def write_json_file(file_path, data):
     """Sanitize `data` and write it as JSON to `file_path`."""
     try:
         sanitized_data = sanitize_for_json(data)
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             json.dump(sanitized_data, f, indent=4)
         print(f"JSON data successfully written to {file_path}")
     except Exception as e:
         print(f"Failed to write JSON data to file: {e}")
 
-def s3FileTolocal(J, s3=None, pt="/tmp"):
+
+def pick_random_path(suffix):
+    """Create a random temporary file path."""
+    temp_dir = Path(tempfile.gettempdir())
+    random_name = f"{uuid.uuid4().hex}{suffix}"
+    return temp_dir / random_name
+
+
+def create_random_temp_dir():
+    directory = pick_random_path("")
+    directory.mkdir()
+    return directory
+
+
+def download_from_s3(file_info, s3=None, pt="/tmp"):
     """
-    If J == {"bucket": ..., "key": ..., "filename": ...}, download that S3 object
-    into a random file under `pt`, then set J["filename"] to the local path and
-    J["type"] = "local". Return the modified J.
+    If file_info == {"bucket": ..., "key": ..., "filename": ...}, download that S3 object
+    into a random file under `pt`, then set file_info["filename"] to the local path and
+    file_info["type"] = "local".
     """
-    key = J["key"]
-    bucket = J["bucket"]
-    filename = J["filename"]
+    key = file_info["key"]
+    bucket = file_info["bucket"]
+    filename = file_info["filename"]
     if s3 is None:
         s3 = boto3.resource("s3")
-    O = pn.Pathable(pt)
-    O.addBaseName(filename)
-    O.changeFileNameRandom()
-    local_path = O.getPosition()
-    s3.Bucket(bucket).download_file(key, local_path)
-    J["filename"] = local_path
-    J["type"] = "local"
-    return J
+
+    # Create random local path
+    local_path = pick_random_path(suffix=Path(filename).suffix)
+
+    s3.Bucket(bucket).download_file(key, str(local_path))
+    file_info["filename"] = str(local_path)
+    file_info["type"] = "local"
+
 
 def do_process(event, context=None, s3=None):
     """
@@ -55,276 +82,297 @@ def do_process(event, context=None, s3=None):
       3. Parses pipeline/task/options flags.
       4. Downloads any referenced S3 files (noise/signal) locally.
       5. Runs `python -m mrotools.snr …`.
-      6. If successful: zip “OUT” and upload to `ResultsBucketName`.
-      7. On error: collect logs, write error files, zip “OUT” and upload to `FailedBucketName`.
+      6. If successful: zip "OUT" and upload to `ResultsBucketName`.
+      7. On error: collect logs, write error files, zip "OUT" and upload to `FailedBucketName`.
       8. Return a dict suitable for AWS Lambda (statusCode/body).
     """
     # Read bucket names from environment (set in Lambda config or Fargate Task Definition)
-    mroptimum_result = os.getenv("ResultsBucketName", "mrorv2")
-    mroptimum_failed = os.getenv("FailedBucketName", "mrofv2")
+    result_bucket = os.getenv("ResultsBucketName", "mrorv2")
+    failed_bucket = os.getenv("FailedBucketName", "mrofv2")
 
     # Initialize logging
-    L = pn.Log("mroptimum job", {"event": event, "context": context or {}})
+    logger = PrintingLogger("mroptimum job", {"event": event, "context": context or {}})
 
     try:
         # Prepare S3 resource
         if s3 is None:
             s3 = boto3.resource("s3")
 
-        #s3 implementation
+        # s3 implementation
         if "Records" in event and event["Records"] and "s3" in event["Records"][0]:
             # ----- S3 path: extract bucket/key, download JSON -----
             bucket_name = event["Records"][0]["s3"]["bucket"]["name"]
-            file_key    = event["Records"][0]["s3"]["object"]["key"]
-            L.append(f"bucket_name {bucket_name}")
-            L.append(f"file_key {file_key}")
+            file_key = event["Records"][0]["s3"]["object"]["key"]
+            logger.write(f"bucket_name {bucket_name}")
+            logger.write(f"file_key {file_key}")
 
             # Download the JSON payload to /tmp/<random>.json
-            fj = pn.createRandomTemporaryPathableFromFileName("a.json")
-            s3.Bucket(bucket_name).download_file(file_key, fj.getPosition())
-            L.append(f"file downloaded to {fj.getPosition()}")
+            fj = pick_random_path(suffix=".json")
+            s3.Bucket(bucket_name).download_file(file_key, str(fj))
+            logger.write(f"file downloaded to {fj}")
 
             # Read that JSON from local
-            J = pn.Pathable(fj.getPosition()).readJson()
-            L.append("json file read")
+            with open(fj, "r") as f:
+                info_json = json.load(f)
+            logger.write("json file read")
         else:
             # no S3 event, assume direct payload
-            L.append("no S3 event, using direct payload")
-            J = event
-            L.append("using direct payload from API")
+            logger.write("no S3 event, using direct payload")
+            info_json = event
+            logger.write("using direct payload from API")
             # If you want to preserve the "alias" or "pipeline" in logs:
-            if "alias" in J:
-                L.append(f"alias {J.get('alias')}")
-            if "pipeline" in J:
-                L.append(f"pipeline {J.get('pipeline')}")
+            if "alias" in info_json:
+                logger.write(f"alias {info_json.get('alias')}")
+            if "pipeline" in info_json:
+                logger.write(f"pipeline {info_json.get('pipeline')}")
 
         # ───────────────────────────────────────────────
         # 2) Extract pipelineid, token, OUTPUT flags from J
         # ───────────────────────────────────────────────
-        pipelineid = J.get("pipeline",None)
-        token      = J.get("token",None)
-        OUTPUT     = J.get("output", {})
-        L.append(f"pipelineid {pipelineid}")
-        L.append(f"token {token}")
+        pipelineid = info_json.get("pipeline", None)
+        token = info_json.get("token", None)
+        user_id = info_json.get("user_id", None)
+        info_json_output = info_json.get("output", {})
+        logger.write(f"pipelineid {pipelineid}")
+        logger.write(f"token {token}")
 
         # Determine flags for coilsensitivity, matlab, gfactor
-        savecoils  = "--no-coilsens"
+        savecoils = "--no-coilsens"
         savematlab = "--no-matlab"
-        savegfactor= "--no-gfactor"
-        if OUTPUT.get("coilsensitivity"):
+        savegfactor = "--no-gfactor"
+        if info_json_output.get("coilsensitivity"):
             savecoils = "--coilsens"
-        if OUTPUT.get("matlab"):
+        if info_json_output.get("matlab"):
             savematlab = "--matlab"
-        if OUTPUT.get("gfactor"):
+        if info_json_output.get("gfactor"):
             savegfactor = "--gfactor"
-        L.append(f"savecoils {savecoils}")
-        L.append(f"savematlab {savematlab}")
-        L.append(f"savegfactor {savegfactor}")
+        logger.write(f"savecoils {savecoils}")
+        logger.write(f"savematlab {savematlab}")
+        logger.write(f"savegfactor {savegfactor}")
 
         # 5) Get the task dict
-        T = J["task"]
-        NOISE_AVAILABLE=False
-        SIGNAL_AVAILABLE=False
-        MULTIRAID= False
+        task_info = info_json["task"]
+        NOISE_AVAILABLE = False
+        SIGNAL_AVAILABLE = False
+        MULTIRAID = False
         # 6) If noise or signal == S3 type, download locally
-        recon_opts = T["options"]["reconstructor"]["options"]
-        try:
-            noise_opts  = recon_opts["noise"]["options"]
+        recon_opts = task_info["options"]["reconstructor"]["options"]
+        if "noise" in recon_opts:
+            noise_opts = recon_opts["noise"]["options"]
             if noise_opts.get("type") == "s3":
-                T["options"]["reconstructor"]["options"]["noise"]["options"] = s3FileTolocal(noise_opts, s3)
-                L.append("noise file downloaded locally")   
-                NOISE_AVAILABLE = True 
-        except:
+                download_from_s3(noise_opts, s3)
+                logger.write("noise file downloaded")
+                NOISE_AVAILABLE = True
+        else:
             # If "noise" is not present, we skip this step
-            L.append("no noise options found, skipping download")
-            
-        try:
-            signal_opts = recon_opts["signal"]["options"]        
+            logger.write("no noise options found, skipping download")
+
+        if "signal" in recon_opts:
+            signal_opts = recon_opts["signal"]["options"]
             if signal_opts.get("type") == "s3":
-                T["options"]["reconstructor"]["options"]["signal"]["options"] = s3FileTolocal(signal_opts, s3)
-                L.append("signal file downloaded locally")
+                download_from_s3(signal_opts, s3)
+                logger.write("signal file downloaded")
                 SIGNAL_AVAILABLE = True
-                if "vendor" in T["options"]["reconstructor"]["options"]["signal"]["options"]:
-                    if T["options"]["reconstructor"]["options"]["signal"]["options"]["vendor"].lower() == "siemens":
-                        # If vendor is mroptimum, we can use the signal options directly
-                        L.append("signal vendor is mroptimum, using options directly")
-                        MULTIRAID= T["options"]["reconstructor"]["options"]["signal"]["options"].get("multiraid", False)
-                    
-        except:
+                if signal_opts.get("vendor", "").lower() == "siemens":
+                    # If vendor is mroptimum, we can use the signal options directly
+                    logger.write("signal vendor is mroptimum, using options directly")
+                    MULTIRAID = signal_opts.get("multiraid", False)
+        else:
             # If "signal" is not present, we skip this step
-            L.append("no signal options found, skipping download")
-            
+            logger.write("no signal options found, skipping download")
 
         # 7) Write updated T → /tmp/<random>.json for mrotools.snr
-        JO = pn.createRandomTemporaryPathableFromFileName("a.json")
-        T["token"] = token
-        T["pipelineid"] = pipelineid
-        JO.writeJson(T)
-        L.append(f"writeJson for mrotools input: {JO.getPosition()}")
+        task_info["token"] = token
+        task_info["pipelineid"] = pipelineid
+
+        mrotools_input_json_file = pick_random_path(suffix=".json")
+        with open(mrotools_input_json_file, "w") as f:
+            json.dump(task_info, f)
+        logger.write(f"writeJson for mrotools input: {mrotools_input_json_file}")
 
         # 8) Prepare output folder under /tmp: /tmp/<random>/OUT
-        O = pn.createRandomTemporaryPathableFromFileName("a.json")
-        O.appendPath("OUT")
-        O.ensureDirectoryExistence()
-        OUT = O.getPosition()
-        L.append(f"output dir set to {OUT}")
+        out_base = create_random_temp_dir()
+        out_dir = out_base / "OUT"
+        out_dir.mkdir(parents=True)
+        logger.write(f"output dir set to {out_dir}")
 
         # 9) Prepare a logfile path
-        log_path = pn.createRandomTemporaryPathableFromFileName("a.json").getPosition()
+        log_path = pick_random_path(suffix=".log")
 
         # 10) Run the mrotools.snr command
-        K = pn.BashIt()
-        # In Lambda we do “--no-parallel” because CPU cores are limited; 
-        # in Fargate you can remove that flag or change to “--parallel” if desired. 
-        # Here we keep it as “--no-parallel” by default, but you can override via ENV if needed.
+        BashItObject = pn.BashIt()
+        # In Lambda we do "--no-parallel" because CPU cores are limited;
+        # in Fargate you can remove that flag or change to "--parallel" if desired.
+        # Here we keep it as "--no-parallel" by default, but you can override via ENV if needed.
         parallel_flag = os.getenv("MROPARALLEL", "false").lower()
         if parallel_flag in ("true", "1", "yes"):
             parallel_arg = "--parallel"
         else:
             parallel_arg = "--no-parallel"
-            
+
         # check noise and signal availability
-        if (NOISE_AVAILABLE or MULTIRAID ) and SIGNAL_AVAILABLE:
-            L.append("noise and signal available, proceeding with computation")
+        if (NOISE_AVAILABLE or MULTIRAID) and SIGNAL_AVAILABLE:
+            logger.write("noise and signal available, proceeding with computation")
         else:
-            L.append("WARNING: noise or signal not available, using --no-parallel")
-            raise Exception("Noise or signal not available, cannot proceed with computation")
+            logger.write("WARNING: noise or signal not available, using --no-parallel")
+            raise Exception(
+                "Noise or signal not available, cannot proceed with computation"
+            )
 
         cmd = (
             f"python -m mrotools.snr "
-            f"-j {JO.getPosition()} "
-            f"-o {OUT} "
+            f"-j {mrotools_input_json_file} "
+            f"-o {out_dir} "
             f"{parallel_arg} {savematlab} {savecoils} {savegfactor} "
             f"--no-verbose "
             f"-l {log_path}"
         )
-        K.setCommand(cmd)
-        L.append(f"running command: {cmd}")
-        K.run()
+        BashItObject.setCommand(cmd)
+        logger.write(f"running command: {cmd}")
+        BashItObject.run()
 
         # 11) Inspect the generated log for errors
         g = pn.Log()
-        g.appendFullLog(log_path)
+        g.appendFullLog(str(log_path))
         if g.log and g.log[-1].get("what") == "ERROR":
-            # If the final log entry says “ERROR”, treat as a computation failure
-            L.append("ERROR in the computation")
-            L.appendFullLog(log_path)
+            # If the final log entry says "ERROR", treat as a computation failure
+            logger.write("ERROR in the computation")
+            logger.appendFullLog(str(log_path))
             raise Exception("ERROR in the computation")
 
-        L.append("computation completed successfully")
-        L.appendFullLog(log_path)
+        logger.write("computation completed successfully")
+        logger.appendFullLog(str(log_path))
+
+        try:
+            print("Fixing up info.json")
+            info_json_path = out_dir / "info.json"
+            with open(info_json_path, "r") as f:
+                info_json_data = json.load(f)
+            info_json_data["user_id"] = user_id
+            with open(info_json_path, "w") as f:
+                json.dump(info_json_data, f)
+        except:
+            traceback.print_exc()
+            print("Failed to fix up info.json")
 
         # 12) Zip the entire OUT folder
-        Z = pn.createRandomTemporaryPathableFromFileName("a.zip")
-        Z.ensureDirectoryExistence()
-        base = Z.getPosition()[:-4]  # strip “.zip”
-        shutil.make_archive(base, "zip", O.getPath())
-        zip_path = Z.getPosition()
-        L.append(f"zipped output to {zip_path}")
+        zip_path = Path(
+            shutil.make_archive(pick_random_path(suffix=""), "zip", str(out_dir))
+        )
 
-        # 13) Upload zip to the “results” bucket
-        s3.Bucket(mroptimum_result).upload_file(zip_path, Z.getBaseName())
-        L.append(f"uploaded results → s3://{mroptimum_result}/{Z.getBaseName()}")
+        logger.write(f"zipped output to {zip_path}")
+
+        # 13) Upload zip to the "results" bucket
+        key = f"MR Optimum/{user_id}/{zip_path.name}"
+        s3.Bucket(result_bucket).upload_file(str(zip_path), key)
+        logger.write(f"uploaded results → s3://{result_bucket}/{key}")
 
         # 14) Return success (Lambda will interpret this as a 200)
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "results": {
-                    "key": Z.getBaseName(),
-                    "bucket": mroptimum_result
-                }
-            })
+            "body": json.dumps({"results": {"key": key, "bucket": result_bucket}}),
         }
 
-    except Exception as e:
-        # On *any* exception, bundle up logs, save event+options+error, zip “OUT”, and upload to “failed” bucket.
-        L.append("EXCEPTION CAUGHT: " + str(e))
-        # Prepare an “error” directory under /tmp so we can capture event / options / error.txt / info.json
-        ErrBase = pn.createRandomTemporaryPathableFromFileName("a.json")
-        ErrBase.appendPath("ERROR_DIR")
-        ErrBase.ensureDirectoryExistence()
+    except Exception as error:
+        # On *any* exception, bundle up logs, save event+options+error, zip "OUT", and upload to "failed" bucket.
+        error_formatted = traceback.format_exception(error)
+        for line in error_formatted:
+            logger.write(line)
+        error_formatted = "\n".join(error_formatted)
+        # logger.write("EXCEPTION CAUGHT: " + str(e))
+
+        # Prepare an "error" directory under /tmp so we can capture event / options / error.txt / info.json
+        err_base = create_random_temp_dir()
+        error_dir = err_base / "ERROR_DIR"
+        error_dir.mkdir(parents=True, exist_ok=True)
 
         # 1) Write event.json
-        E_event = ErrBase.duplicate()  # a copy of the ERROR_DIR path
-        E_event.changeFileName("event")
-        E_event.changeExtension("json")
+        event_file = error_dir / "event.json"
         try:
-            E_event.writeJson(event)
-            L.append(f"wrote event → {E_event.getPosition()}")
+            with open(event_file, "w") as f:
+                json.dump(event, f, indent=4)
+            logger.write(f"wrote event → {event_file}")
         except:
-            print(f"couldn't write event JSON at {E_event.getPosition()}")
+            traceback.print_exc()
+            print(f"couldn't write event JSON at {event_file}")
 
         # 2) Write options.json (the original J)
-        E_opts = ErrBase.duplicate()
-        E_opts.changeFileName("options")
-        E_opts.changeExtension("json")
+        opts_file = error_dir / "options.json"
         try:
-            E_opts.writeJson(J)
-            L.append(f"wrote options → {E_opts.getPosition()}")
+            with open(opts_file, "w") as f:
+                json.dump(info_json, f, indent=4)
+            logger.write(f"wrote options → {opts_file}")
         except:
-            print(f"couldn't write options JSON at {E_opts.getPosition()}")
+            traceback.print_exc()
+            print(f"couldn't write options JSON at {opts_file}")
 
         # 3) Write error.txt
-        E_txt = ErrBase.duplicate()
-        E_txt.changeFileName("error")
-        E_txt.changeExtension("txt")
-        with open(E_txt.getPosition(), "w") as f:
-            f.write(str(e))
-        L.append(f"wrote error.txt → {E_txt.getPosition()}")
+        error_file = error_dir / "error.txt"
+        with open(error_file, "w") as f:
+            f.write(error_formatted)
+        logger.write(f"wrote error.txt → {error_file}")
 
         # 4) Write an info.json that includes token/pipelineid and full pn.Log
-        INFO = {
+        info_json_out = {
             "headers": {
-                "options": {
-                    "token": token,
-                    "pipelineid": pipelineid
-                },
-                "log": L.log
+                "options": {"token": token, "pipelineid": pipelineid},
+                "log": logger.log,
             }
         }
-        E_info = ErrBase.duplicate()
-        E_info.changeFileName("info")
-        E_info.changeExtension("json")
+        info_file = error_dir / "info.json"
         try:
-            E_info.writeJson(INFO)
-            L.append(f"wrote info → {E_info.getPosition()}")
+            with open(info_file, "w") as f:
+                json.dump(info_json_out, f, indent=4)
+            logger.write(f"wrote info → {info_file}")
         except:
-            # If pn.Pathable.writeJson fails, fallback to sanitizer
-            write_json_file(E_info.getPosition(), INFO)
-            L.append(f"wrote info via sanitizer → {E_info.getPosition()}")
+            # If standard JSON fails, use sanitizer
+            write_json_file(str(info_file), info_json_out)
+            logger.write(f"wrote info via sanitizer → {info_file}")
 
         # 5) Bundle up everything under ERROR_DIR into a zip
-        Zfail = pn.createRandomTemporaryPathableFromFileName("a.zip")
-        Zfail.ensureDirectoryExistence()
-        base_fail = Zfail.getPosition()[:-4]
-        shutil.make_archive(base_fail, "zip", ErrBase.getPath())
-        zip_fail_path = Zfail.getPosition()
-        L.append(f"zipped failure bundle to {zip_fail_path}")
+        zip_fail_path = Path(
+            shutil.make_archive(
+                pick_random_path(suffix=""),
+                "zip",
+                str(error_dir.parent),
+                error_dir.name,
+            )
+        )
+        logger.write(f"zipped failure bundle to {zip_fail_path}")
 
-        # 6) Upload to the “failed” bucket
+        # 6) Upload to the "failed" bucket
         try:
-            s3.Bucket(mroptimum_failed).upload_file(zip_fail_path, Zfail.getBaseName())
-            L.append(f"uploaded failed bundle → s3://{mroptimum_failed}/{Zfail.getBaseName()}")
+            key = f"MR Optimum/{user_id}/{zip_fail_path.name}"
+            s3.Bucket(failed_bucket).upload_file(str(zip_fail_path), key)
+            logger.write(f"uploaded failed bundle → s3://{failed_bucket}/{key}")
         except Exception as upload_err:
+            traceback.print_exc()
             print(f"Failed to upload to failed bucket: {upload_err}")
+            return {
+                "statusCode": 500,
+                "body": json.dumps(
+                    {
+                        "error": error_formatted,
+                        "s3_error": "\n".join(traceback.format_exc()),
+                    }
+                ),
+            }
 
         # 7) Return 500-like response
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": str(e)})
-        }
+        return {"statusCode": 500, "body": json.dumps({"error": error_formatted})}
+
 
 def handler(event, context, s3=None):
     """
     AWS Lambda entry point. Calls `do_process(...)` and returns its dict directly.
     """
     print(f"Received event: {json.dumps(event, indent=2)}")
-    return do_process(event, context,s3=s3)
+    return do_process(event, context, s3=s3)
+
 
 def main():
     """
-    Fargate/Step Functions entry point.  
+    Fargate/Step Functions entry point.
     Expects the raw S3-trigger JSON to be passed in via the FILE_EVENT environment variable.
     Exits with code 0 on success, or 1 on failure.
     """
@@ -347,6 +395,7 @@ def main():
     else:
         print("do_process succeeded. Exiting with 0.")
         sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

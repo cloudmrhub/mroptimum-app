@@ -323,6 +323,13 @@ Resources:
     Properties:
       StateMachineName: !Sub "${AWS::StackName}-JobChooser"
       RoleArn: !GetAtt StateMachineInvokeRole.Arn
+      Tags:
+        - Key: App
+          Value: CloudMR
+        - Key: CMRRole
+          Value: BackendCalculation
+        - Key: CMRApp
+          Value: MR Optimum
       DefinitionString:
         Fn::Sub:
           - |
