@@ -275,7 +275,7 @@ def do_process(event, context=None, s3=None):
 
     except Exception as error:
         # On *any* exception, bundle up logs, save event+options+error, zip "OUT", and upload to "failed" bucket.
-        error_formatted = traceback.format_exception(error)
+        error_formatted = traceback.format_exc()
         for line in error_formatted:
             logger.write(line)
         error_formatted = "\n".join(error_formatted)
@@ -334,8 +334,7 @@ def do_process(event, context=None, s3=None):
             shutil.make_archive(
                 pick_random_path(suffix=""),
                 "zip",
-                str(error_dir.parent),
-                error_dir.name,
+                str(error_dir),
             )
         )
         logger.write(f"zipped failure bundle to {zip_fail_path}")
