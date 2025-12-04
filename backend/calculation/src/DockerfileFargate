@@ -8,12 +8,11 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python libs
-COPY requirements.txt .
+COPY requirements-fargate-compiled.txt .
 RUN pip install --upgrade pip \
- && pip install -r requirements.txt \
- && pip install git+https://github.com/cloudmrhub/mroptimum-tools.git
-RUN pip install git+https://github.com/erosmontin/pynico.git
-RUN echo "Installed Python packages"
+ && pip install -r requirements-fargate-compiled.txt
+
+ RUN echo "Installed Python packages"
 # Copy your application code
 COPY . .
 RUN mkdir -p /tmp/.matplotlib && chmod 777 /tmp/.matplotlib

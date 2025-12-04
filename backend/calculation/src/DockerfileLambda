@@ -1,16 +1,17 @@
 FROM public.ecr.aws/lambda/python:3.10
 
 RUN yum update -y \
-    && yum install -y git \
+    && yum install -y git pkg-config libhdf5-dev \
     && yum clean all \
     && rm -rf /var/cache/yum
 
 WORKDIR /var/task
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-RUN pip install git+https://github.com/cloudmrhub/mroptimum-tools.git
-RUN pip install git+https://github.com/erosmontin/pynico.git
+COPY requirements-lambda-frozen.txt .
+RUN pip install -r requirements-lambda-frozen.txt
+# RUN pip install git+https://github.com/cloudmrhub/mroptimum-tools.git
+# RUN pip install git+https://github.com/erosmontin/pynico.git
+
 # Copy application code
 COPY app.py lambda_function.py
 

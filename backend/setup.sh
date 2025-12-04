@@ -1,4 +1,6 @@
-STACK_NAME=mroptimum-app-test
+set -e
+
+STACK_NAME=mroptimum-app-py-cloudmr
 SPINFRONTEND=true
 
 # 1) Set AWS region & account ID
@@ -66,14 +68,14 @@ docker push "${FARGATE_IMAGE_URI}"
 echo "✅ Fargate image pushed: ${FARGATE_IMAGE_URI}"
 
 
-# # 7) Build & push the Lambda image (lambda-image stage)
-# echo "⏳ Building and pushing Lambda image…"
-# docker build -t "${LAMBDA_REPO}:latest" -f DockerfileLambda .
+# 7) Build & push the Lambda image (lambda-image stage)
+echo "⏳ Building and pushing Lambda image…"
+docker build -t "${LAMBDA_REPO}:latest" -f DockerfileLambda .
   
 
-# docker tag "${LAMBDA_REPO}:latest" "${LAMBDA_IMAGE_URI}"
-# docker push "${LAMBDA_IMAGE_URI}"
-# echo "✅ Lambda image pushed: ${LAMBDA_IMAGE_URI}"
+docker tag "${LAMBDA_REPO}:latest" "${LAMBDA_IMAGE_URI}"
+docker push "${LAMBDA_IMAGE_URI}"
+echo "✅ Lambda image pushed: ${LAMBDA_IMAGE_URI}"
 
 
 # 8) Summarize
@@ -88,9 +90,9 @@ cd $MYROOT
 echo "Current working directory: $MYROOT   " 
 pwd
 
-echo "Setting up AWS resources for mroptimum-app-test stack..."
+echo "Setting up AWS resources for $STACK_NAME stack..."
 # 9) Set up AWS resources for the stack
-VPC=$(aws ec2 describe-vpcs   --query "Vpcs[0].VpcId" --output text --profile nyu)
+VPC=$(aws ec2 describe-vpcs --region "$AWS_REGION" --query "Vpcs[0].VpcId" --output text --profile nyu)
 
 echo VPC=$VPC
 # SUBNET=$(aws ec2 describe-subnets \
@@ -106,6 +108,7 @@ mapfile -t ss < <(
     --filters "Name=vpc-id,Values=$VPC" \
     --query "Subnets[?MapPublicIpOnLaunch==\`true\`].[SubnetId,AvailabilityZone]" \
     --output text \
+    --region "$AWS_REGION" \
     --profile nyu
 )
 
@@ -131,6 +134,7 @@ echo "SUBNET1=$SUBNET1  SUBNET2=$SUBNET2"
 
 SECURITY_GROUP=$(aws ec2 describe-security-groups \
   --filters "Name=vpc-id,Values=$VPC" "Name=group-name,Values=default" \
+  --region "$AWS_REGION" \
   --query "SecurityGroups[0].GroupId" --output text --profile nyu)
 
 echo SECURITY_GROUP=$SECURITY_GROUP
@@ -139,10 +143,13 @@ echo SECURITY_GROUP=$SECURITY_GROUP
 
 cd $MYROOT
 pwd
-sam build --profile nyu --use-container
+if ! sam build --profile nyu --use-container; then
+  echo "❌ SAM build failed"
+  exit 1
+fi
 
 
- sam deploy \
+if ! sam deploy \
   --stack-name "${STACK_NAME}" \
   --profile nyu \
   --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
@@ -156,53 +163,59 @@ sam build --profile nyu --use-container
     SubnetId1="${SUBNET1}" \
     SubnetId2="${SUBNET2}" \
     SecurityGroupIds="${SECURITY_GROUP}" \
-  --region "$AWS_REGION" \
-
-
-PARENT_OUTPUT=$(aws cloudformation describe-stacks \
-  --stack-name "${STACK_NAME}" \
-  --query "Stacks[0].Outputs[?OutputKey=='QueueJobApiKeyID'].OutputValue" \
-  --output text\
-  --profile nyu)
-echo "ApiKeyId = ${PARENT_OUTPUT}"
-
-key=$(aws apigateway get-api-key \
-  --api-key "${PARENT_OUTPUT}" \
-  --include-value \
-  --query 'value' \
-  --output text \
-  --profile nyu)
-
-echo "ApiKey = ${key}"
-
-
-
-
-
-QueueJobApiUrl=$(aws cloudformation describe-stacks \
-  --stack-name "${STACK_NAME}" \
-  --query "Stacks[0].Outputs[?OutputKey=='QueueJobApiUrl'].OutputValue" \
-  --output text\
-  --profile nyu)
-echo "QueueJobApiUrl = ${QueueJobApiUrl}"
-
-FrontendApiUrl=$(aws cloudformation describe-stacks \
-  --stack-name "${STACK_NAME}" \
-  --query "Stacks[0].Outputs[?OutputKey=='FrontendAPI'].OutputValue" \
-  --output text\
-  --profile nyu)
-echo "FrontendApiUrl = ${FrontendApiUrl}"
-
-
-
-if $SPINFRONTEND; then
-  echo "Frontend is already running."
-else
-  echo "Starting frontend..."
-  cd "$MYROOT/frontend"
-  npm install
-  npm run dev &
+  --region "$AWS_REGION" ; then
+  echo "❌ SAM deploy failed"
+  exit 1
 fi
+
+
+
+# PARENT_OUTPUT=$(aws cloudformation describe-stacks \
+#   --stack-name "${STACK_NAME}" \
+#   --query "Stacks[0].Outputs[?OutputKey=='QueueJobApiKeyID'].OutputValue" \
+#   --output text \
+#   --region "$AWS_REGION" \
+#   --profile nyu)
+# echo "ApiKeyId = ${PARENT_OUTPUT}"
+
+# key=$(aws apigateway get-api-key \
+#   --api-key "${PARENT_OUTPUT}" \
+#   --include-value \
+#   --query 'value' \
+#   --output text \
+#   --region "$AWS_REGION" \
+#   --profile nyu)
+
+# echo "ApiKey = ${key}"
+
+
+
+
+
+# QueueJobApiUrl=$(aws cloudformation describe-stacks \
+#   --stack-name "${STACK_NAME}" \
+#   --query "Stacks[0].Outputs[?OutputKey=='QueueJobApiUrl'].OutputValue" \
+#   --output text\
+#   --profile nyu)
+# echo "QueueJobApiUrl = ${QueueJobApiUrl}"
+
+# FrontendApiUrl=$(aws cloudformation describe-stacks \
+#   --stack-name "${STACK_NAME}" \
+#   --query "Stacks[0].Outputs[?OutputKey=='FrontendAPI'].OutputValue" \
+#   --output text\
+#   --profile nyu)
+# echo "FrontendApiUrl = ${FrontendApiUrl}"
+
+
+
+# if $SPINFRONTEND; then
+#   echo "Frontend is already running."
+# else
+#   echo "Starting frontend..."
+#   cd "$MYROOT/frontend"
+#   npm install
+#   npm run dev &
+# fi
 echo "Setup complete! 🎉"
 
 echo $(date)

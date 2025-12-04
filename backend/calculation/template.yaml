@@ -67,14 +67,14 @@ Resources:
       # Grant this Lambda read/write access to all four buckets
       Policies:
 
-        - S3FullAccessPolicy:
-            BucketName: !Ref DataBucketPName
-        - S3FullAccessPolicy:
-            BucketName: !Ref ResultsBucketPName
+        # - S3FullAccessPolicy:
+        #     BucketName: !Ref DataBucketPName
+        # - S3FullAccessPolicy:
+        #     BucketName: !Ref ResultsBucketPName
         - S3FullAccessPolicy:
             BucketName: !Ref FailedBucketPName
-        - S3FullAccessPolicy:
-            BucketName: mytestcmr
+        # - S3FullAccessPolicy:
+        #     BucketName: mytestcmr
 
 
       Environment:

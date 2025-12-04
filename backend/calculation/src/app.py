@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import traceback
+from urllib.parse import urlparse
 import boto3
 import os
 import shutil
@@ -9,7 +10,11 @@ from pathlib import Path
 import tempfile
 import uuid
 
+import requests
+
 from pynico_eros_montin import pynico as pn
+
+logger = None
 
 
 class PrintingLogger(pn.Log):
@@ -60,21 +65,58 @@ def download_from_s3(file_info, s3=None, pt="/tmp"):
     into a random file under `pt`, then set file_info["filename"] to the local path and
     file_info["type"] = "local".
     """
-    key = file_info["key"]
-    bucket = file_info["bucket"]
     filename = file_info["filename"]
-    if s3 is None:
-        s3 = boto3.resource("s3")
-
     # Create random local path
     local_path = pick_random_path(suffix=Path(filename).suffix)
+
+    if "presigned_url" in file_info:
+        logger.write("Downloading from presigned URL " + file_info["key"])
+        response = requests.get(file_info["presigned_url"])
+        if response.status_code == 200:
+            # Write data to the file in chunks
+            with local_path.open("wb") as file:
+                for chunk in response.iter_content(chunk_size=8192):  # 8 KB chunks
+                    file.write(chunk)
+            return
+        else:
+            raise Exception(
+                f"Failed to download file. HTTP status code: {response.status_code}"
+            )
+
+    key = file_info["key"]
+    bucket = file_info["bucket"]
+    if s3 is None:
+        s3 = boto3.resource("s3")
 
     s3.Bucket(bucket).download_file(key, str(local_path))
     file_info["filename"] = str(local_path)
     file_info["type"] = "local"
 
 
+def parse_s3_url(presigned_url):
+    # Parse the URL
+    parsed_url = urlparse(presigned_url)
+
+    # Get the host and path
+    host = parsed_url.netloc
+    path = parsed_url.path.lstrip("/")  # Remove leading slash if present
+
+    # Determine bucket name
+    if host.startswith("s3.amazonaws.com"):
+        # URL with bucket name in the path
+        parts = path.split("/", 1)
+        bucket_name = parts[0]
+        object_key = parts[1] if len(parts) > 1 else ""
+    else:
+        # URL with bucket name in the host (virtual-hosted-style URL)
+        bucket_name = host.split(".")[0]
+        object_key = path
+
+    return bucket_name, object_key
+
+
 def do_process(event, context=None, s3=None):
+    global logger
     """
     Core logic that:
       1. Creates a pn.Log for tracing.
@@ -262,10 +304,18 @@ def do_process(event, context=None, s3=None):
 
         logger.write(f"zipped output to {zip_path}")
 
-        # 13) Upload zip to the "results" bucket
-        key = f"MR Optimum/{user_id}/{zip_path.name}"
-        s3.Bucket(result_bucket).upload_file(str(zip_path), key)
-        logger.write(f"uploaded results → s3://{result_bucket}/{key}")
+        if presigned_url := info_json.get("presigned_upload_url"):
+            # Upload the zip to the presigned URL
+            logger.write("Uploading to presigned url")
+            result = requests.put(presigned_url, data=open(zip_path, "rb"))
+            result.raise_for_status()
+            logger.write(f"uploaded zip to {presigned_url}")
+            key, result_bucket = parse_s3_url(presigned_url)
+        else:
+            # 13) Upload zip to the "results" bucket
+            key = f"MR Optimum/{user_id}/{zip_path.name}"
+            s3.Bucket(result_bucket).upload_file(str(zip_path), key)
+            logger.write(f"uploaded results to s3://{result_bucket}/{key}")
 
         # 14) Return success (Lambda will interpret this as a 200)
         return {
