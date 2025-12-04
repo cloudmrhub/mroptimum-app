@@ -77,18 +77,17 @@ def download_from_s3(file_info, s3=None, pt="/tmp"):
             with local_path.open("wb") as file:
                 for chunk in response.iter_content(chunk_size=8192):  # 8 KB chunks
                     file.write(chunk)
-            return
         else:
             raise Exception(
                 f"Failed to download file. HTTP status code: {response.status_code}"
             )
+    else:
+        key = file_info["key"]
+        bucket = file_info["bucket"]
+        if s3 is None:
+            s3 = boto3.resource("s3")
 
-    key = file_info["key"]
-    bucket = file_info["bucket"]
-    if s3 is None:
-        s3 = boto3.resource("s3")
-
-    s3.Bucket(bucket).download_file(key, str(local_path))
+        s3.Bucket(bucket).download_file(key, str(local_path))
     file_info["filename"] = str(local_path)
     file_info["type"] = "local"
 
