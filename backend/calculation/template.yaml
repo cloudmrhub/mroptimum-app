@@ -24,6 +24,11 @@ Parameters:
     Type: String
     Description: "S3 bucket where failure ZIPs are uploaded."
 
+  TrustedAccountID:
+    Type: String
+    Description: "AWS Account ID of cloudmr-brain (Account B) that will invoke this app"
+    Default: ""
+
   # We will pass the ECR URI for the Fargate image (built from the fargate-image stage)
   FargateImageUri:
     Type: String
@@ -436,6 +441,35 @@ Resources:
       LogGroupName: "/ecs/run-job-fargate"
       RetentionInDays: 14
 
+  #######################################################################
+  # 3.1) Cross-Account Trigger Role (The "Trust" Handshake)
+  #      Allows Account B (cloudmr-brain) to assume this role.
+  #      This role then has permission to start the State Machine.
+  #######################################################################
+  CrossAccountTriggerRole:
+    Type: AWS::IAM::Role
+    Condition: HasTrustedAccount
+    Properties:
+      RoleName: !Sub "mroptimum-cross-account-trigger-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${TrustedAccountID}:root"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TriggerStateMachine
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref JobChooserStateMachine
+
+Conditions:
+  HasTrustedAccount: !Not [!Equals [!Ref TrustedAccountID, ""]]
+
 Outputs:
   StateMachineArn:
     Description: "ARN of the JobChooserStateMachine"
@@ -456,3 +490,7 @@ Outputs:
   RunJobTaskDefinitionArn:
     Description: "ARN of the ECS Task Definition for RunJob"
     Value: !Ref RunJobTaskDefinition
+
+  CrossAccountTriggerRoleArn:
+    Description: "ARN of the IAM Role that cloudmr-brain can assume to trigger execution"
+    Value: !GetAtt CrossAccountTriggerRole.Arn

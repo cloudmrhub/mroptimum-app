@@ -13,6 +13,12 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text --profil
 LAMBDA_REPO="mroptimum-run-job-lambda"
 FARGATE_REPO="mroptimum-run-job-fargate"
 
+# 2.1) Set these to the output from cloudmr-brain deployment (Account B)
+DATA_BUCKET_NAME="cloudmr-data-py-cloudmr-brain-us-east-1"
+RESULTS_BUCKET_NAME="cloudmr-results-py-cloudmr-brain-us-east-1"
+FAILED_BUCKET_NAME="cloudmr-failed-py-cloudmr-brain-us-east-1"
+TRUSTED_ACCOUNT_ID="" # Set this to Account B's ID if you want to enable cross-account trust
+
 
 MYROOT=$(pwd)
 echo "Current working directory: $MYROOT"
@@ -163,6 +169,10 @@ if ! sam deploy \
     SubnetId1="${SUBNET1}" \
     SubnetId2="${SUBNET2}" \
     SecurityGroupIds="${SECURITY_GROUP}" \
+    DataBucketPName="${DATA_BUCKET_NAME}" \
+    ResultsBucketPName="${RESULTS_BUCKET_NAME}" \
+    FailedBucketPName="${FAILED_BUCKET_NAME}" \
+    TrustedAccountID="${TRUSTED_ACCOUNT_ID}" \
   --region "$AWS_REGION" ; then
   echo "❌ SAM deploy failed"
   exit 1
