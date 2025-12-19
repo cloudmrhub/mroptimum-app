@@ -66,31 +66,17 @@ Resources:
       #   Command:
       #     - app.handler
       Timeout: 900
-      MemorySize: 4096
+      MemorySize: 3008
       EphemeralStorage:
-        Size: 4096  
+        Size: 3072  
       # Grant this Lambda read/write access to all four buckets
-      Policies:
-
-        # - S3FullAccessPolicy:
-        #     BucketName: !Ref DataBucketPName
-        # - S3FullAccessPolicy:
-        #     BucketName: !Ref ResultsBucketPName
-        - S3FullAccessPolicy:
-            BucketName: !Ref FailedBucketPName
-        # - S3FullAccessPolicy:
-        #     BucketName: mytestcmr
+      Policies: []
 
 
       Environment:
         Variables:
           ResultsBucketName: !Ref ResultsBucketPName
           FailedBucketName:  !Ref FailedBucketPName
-
-    Metadata:
-      Dockerfile: DockerfileLambda
-      DockerContext: src/
-      DockerTag: python3.10-v1
 
   #######################################################################
   # 2) PlatformSelectorFunction – decides “fargate” vs “lambda” based on task["name"]
@@ -252,38 +238,7 @@ Resources:
             Principal:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: FargateS3Access
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid:  S3GetAndPutData
-                Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                Resource:
-                  - !Sub "arn:aws:s3:::${DataBucketPName}/*"
-              - Sid:  S3PutResults
-                Effect: Allow
-                Action:
-                  - s3:PutObject
-                Resource:
-                  - !Sub "arn:aws:s3:::${ResultsBucketPName}/*"
-              - Sid:  S3PutFailed
-                Effect: Allow
-                Action:
-                  - s3:PutObject
-                Resource:
-                  - !Sub "arn:aws:s3:::${FailedBucketPName}/*"
-              - Sid:  S3FullAccessMyTestCmr
-                Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                Resource:
-                  - "arn:aws:s3:::mytestcmr/*"
-                  - "arn:aws:s3:::mytestcmr"
+      Policies: []
 
   #######################################################################
   # 6) ECS Fargate Task Definition (runs app.py→main())

@@ -173,7 +173,7 @@ def do_process(event, context=None, s3=None):
         pipelineid = info_json.get("pipeline", None)
         token = info_json.get("token", None)
         user_id = info_json.get("user_id", None)
-        info_json_output = info_json.get("output", {})
+        info_json_output = info_json.get("output") or {}
         logger.write(f"pipelineid {pipelineid}")
         logger.write(f"token {token}")
 
@@ -389,9 +389,16 @@ def do_process(event, context=None, s3=None):
 
         # 6) Upload to the "failed" bucket
         try:
-            key = f"MR Optimum/{user_id}/{zip_fail_path.name}"
-            s3.Bucket(failed_bucket).upload_file(str(zip_fail_path), key)
-            logger.write(f"uploaded failed bundle → s3://{failed_bucket}/{key}")
+            logger.write(f"DEBUG: info_json keys: {list(info_json.keys())}")
+            if presigned_failed_url := info_json.get("presigned_failed_upload_url"):
+                logger.write("Uploading failure bundle to presigned url")
+                result = requests.put(presigned_failed_url, data=open(zip_fail_path, "rb"))
+                result.raise_for_status()
+                logger.write(f"uploaded failed bundle → {presigned_failed_url}")
+            else:
+                key = f"MR Optimum/{user_id}/{zip_fail_path.name}"
+                s3.Bucket(failed_bucket).upload_file(str(zip_fail_path), key)
+                logger.write(f"uploaded failed bundle → s3://{failed_bucket}/{key}")
         except Exception as upload_err:
             traceback.print_exc()
             print(f"Failed to upload to failed bucket: {upload_err}")
