@@ -225,6 +225,7 @@ def do_process(event, context=None, s3=None):
         # 7) Write updated T → /tmp/<random>.json for mrotools.snr
         task_info["token"] = token
         task_info["pipelineid"] = pipelineid
+        task_info["version"] = "v0"
 
         mrotools_input_json_file = pick_random_path(suffix=".json")
         with open(mrotools_input_json_file, "w") as f:
@@ -260,29 +261,58 @@ def do_process(event, context=None, s3=None):
                 "Noise or signal not available, cannot proceed with computation"
             )
 
-        cmd = (
-            f"python -m mrotools.snr "
-            f"-j {mrotools_input_json_file} "
-            f"-o {out_dir} "
-            f"{parallel_arg} {savematlab} {savecoils} {savegfactor} "
-            f"--no-verbose "
-            f"-l {log_path}"
-        )
-        BashItObject.setCommand(cmd)
-        logger.write(f"running command: {cmd}")
-        BashItObject.run()
+        # Construct command as list for subprocess (safer and easier to handle args)
+        cmd_list = [
+            "python", "-m", "mrotools.snr",
+            "-j", str(mrotools_input_json_file),
+            "-o", str(out_dir),
+            parallel_arg,
+            savematlab,
+            savecoils,
+            savegfactor,
+            "--no-verbose",
+            "-l", str(log_path)
+        ]
+        
+        cmd_str = " ".join(cmd_list)
+        logger.write(f"running command: {cmd_str}")
+
+        import subprocess
+        try:
+            result = subprocess.run(
+                cmd_list,
+                capture_output=True,
+                text=True,
+                check=False  # Don't raise yet, we want to log output first
+            )
+            logger.write(f"Command return code: {result.returncode}")
+            if result.stdout:
+                logger.write(f"Command stdout: {result.stdout}")
+            if result.stderr:
+                logger.write(f"Command stderr: {result.stderr}")
+            
+            if result.returncode != 0:
+                raise Exception(f"Command failed with return code {result.returncode}")
+
+        except Exception as e:
+            logger.write(f"Error running command: {str(e)}")
+            raise e
 
         # 11) Inspect the generated log for errors
-        g = pn.Log()
-        g.appendFullLog(str(log_path))
-        if g.log and g.log[-1].get("what") == "ERROR":
-            # If the final log entry says "ERROR", treat as a computation failure
-            logger.write("ERROR in the computation")
-            logger.appendFullLog(str(log_path))
-            raise Exception("ERROR in the computation")
+        if log_path.exists():
+            g = pn.Log()
+            g.appendFullLog(str(log_path))
+            if g.log and g.log[-1].get("what") == "ERROR":
+                # If the final log entry says "ERROR", treat as a computation failure
+                logger.write("ERROR in the computation")
+                logger.appendFullLog(str(log_path))
+                raise Exception("ERROR in the computation")
 
-        logger.write("computation completed successfully")
-        logger.appendFullLog(str(log_path))
+            logger.write("computation completed successfully")
+            logger.appendFullLog(str(log_path))
+        else:
+            logger.write(f"ERROR: Log file not found at {log_path}")
+            raise Exception(f"Computation failed to produce log file at {log_path}. The mrotools command likely crashed.")
 
         try:
             print("Fixing up info.json")
