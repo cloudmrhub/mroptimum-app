@@ -24,6 +24,11 @@ Parameters:
     Type: String
     Description: "S3 bucket where failure ZIPs are uploaded."
 
+  TrustedAccountID:
+    Type: String
+    Description: "AWS Account ID of cloudmr-brain (Account B) that will invoke this app"
+    Default: ""
+
   # We will pass the ECR URI for the Fargate image (built from the fargate-image stage)
   FargateImageUri:
     Type: String
@@ -61,31 +66,17 @@ Resources:
       #   Command:
       #     - app.handler
       Timeout: 900
-      MemorySize: 4096
+      MemorySize: 3008
       EphemeralStorage:
-        Size: 4096  
+        Size: 3072  
       # Grant this Lambda read/write access to all four buckets
-      Policies:
-
-        # - S3FullAccessPolicy:
-        #     BucketName: !Ref DataBucketPName
-        # - S3FullAccessPolicy:
-        #     BucketName: !Ref ResultsBucketPName
-        - S3FullAccessPolicy:
-            BucketName: !Ref FailedBucketPName
-        # - S3FullAccessPolicy:
-        #     BucketName: mytestcmr
+      Policies: []
 
 
       Environment:
         Variables:
           ResultsBucketName: !Ref ResultsBucketPName
           FailedBucketName:  !Ref FailedBucketPName
-
-    Metadata:
-      Dockerfile: DockerfileLambda
-      DockerContext: src/
-      DockerTag: python3.10-v1
 
   #######################################################################
   # 2) PlatformSelectorFunction – decides “fargate” vs “lambda” based on task["name"]
@@ -247,38 +238,7 @@ Resources:
             Principal:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: FargateS3Access
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid:  S3GetAndPutData
-                Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                Resource:
-                  - !Sub "arn:aws:s3:::${DataBucketPName}/*"
-              - Sid:  S3PutResults
-                Effect: Allow
-                Action:
-                  - s3:PutObject
-                Resource:
-                  - !Sub "arn:aws:s3:::${ResultsBucketPName}/*"
-              - Sid:  S3PutFailed
-                Effect: Allow
-                Action:
-                  - s3:PutObject
-                Resource:
-                  - !Sub "arn:aws:s3:::${FailedBucketPName}/*"
-              - Sid:  S3FullAccessMyTestCmr
-                Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                Resource:
-                  - "arn:aws:s3:::mytestcmr/*"
-                  - "arn:aws:s3:::mytestcmr"
+      Policies: []
 
   #######################################################################
   # 6) ECS Fargate Task Definition (runs app.py→main())
@@ -436,6 +396,35 @@ Resources:
       LogGroupName: "/ecs/run-job-fargate"
       RetentionInDays: 14
 
+  #######################################################################
+  # 3.1) Cross-Account Trigger Role (The "Trust" Handshake)
+  #      Allows Account B (cloudmr-brain) to assume this role.
+  #      This role then has permission to start the State Machine.
+  #######################################################################
+  CrossAccountTriggerRole:
+    Type: AWS::IAM::Role
+    Condition: HasTrustedAccount
+    Properties:
+      RoleName: !Sub "mroptimum-cross-account-trigger-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${TrustedAccountID}:root"
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TriggerStateMachine
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref JobChooserStateMachine
+
+Conditions:
+  HasTrustedAccount: !Not [!Equals [!Ref TrustedAccountID, ""]]
+
 Outputs:
   StateMachineArn:
     Description: "ARN of the JobChooserStateMachine"
@@ -456,3 +445,7 @@ Outputs:
   RunJobTaskDefinitionArn:
     Description: "ARN of the ECS Task Definition for RunJob"
     Value: !Ref RunJobTaskDefinition
+
+  CrossAccountTriggerRoleArn:
+    Description: "ARN of the IAM Role that cloudmr-brain can assume to trigger execution"
+    Value: !GetAtt CrossAccountTriggerRole.Arn

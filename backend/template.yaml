@@ -42,6 +42,23 @@ Parameters:
     Type: String
     Description: "ECR URI of the pre-built Lambda image"
 
+  DataBucketPName:
+    Type: String
+    Description: "Name of the Data Bucket (from cloudmr-brain)"
+
+  ResultsBucketPName:
+    Type: String
+    Description: "Name of the Results Bucket (from cloudmr-brain)"
+
+  FailedBucketPName:
+    Type: String
+    Description: "Name of the Failed Bucket (from cloudmr-brain)"
+
+  TrustedAccountID:
+    Type: String
+    Description: "AWS Account ID of cloudmr-brain (Account B) that will invoke this app"
+    Default: ""
+
 
 
 Globals:
@@ -117,9 +134,10 @@ Resources:
       Location: calculation/template.yaml
       Parameters:                          # now pass the two IDs directly
         StageName:           !Ref StageName
-        DataBucketPName:     !ImportValue py-cloudmr-brain-DataBucketName
-        ResultsBucketPName:  !ImportValue py-cloudmr-brain-ResultsBucketName
-        FailedBucketPName:   !ImportValue py-cloudmr-brain-FailedBucketName
+        DataBucketPName:     !Ref DataBucketPName
+        ResultsBucketPName:  !Ref ResultsBucketPName
+        FailedBucketPName:   !Ref FailedBucketPName
+        TrustedAccountID:    !Ref TrustedAccountID
         FargateImageUri:     !Ref FargateImageUri
         ECSClusterName:      !Ref ECSClusterName
         SubnetId1:           !Ref SubnetId1
