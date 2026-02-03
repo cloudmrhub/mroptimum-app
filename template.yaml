@@ -1,0 +1,294 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  MR Optimum Backend Compute Infrastructure
+  Supports Mode 1 (CloudMRHub managed) deployment.
+  Mode 2 (User-owned) uses separate template in mode2-deployment/
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "CloudMR Brain Integration"
+        Parameters:
+          - CortexHost
+          - CloudMRBrainStackName
+      - Label:
+          default: "Docker Images"
+        Parameters:
+          - LambdaImageUri
+          - FargateImageUri
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - SubnetId1
+          - SubnetId2
+          - SecurityGroupIds
+      - Label:
+          default: "ECS Configuration"
+        Parameters:
+          - ECSClusterName
+      - Label:
+          default: "Deployment"
+        Parameters:
+          - StageName
+
+Parameters:
+  CortexHost: 
+    Type: String
+    Description: "CloudMR Brain API hostname (e.g., api.cloudmrhub.com)"
+    Default: 'api.cloudmrhub.com'
+
+  CloudMRBrainStackName:
+    Type: String
+    Description: "Name of the cloudmr-brain CloudFormation stack (for imports)"
+    Default: 'py-cloudmr-brain'
+
+  FargateImageUri:
+    Type: String
+    Description: >-
+      URI of the Docker image for the Fargate task (built and pushed by CI/CD).
+      Example: "123456789012.dkr.ecr.us-east-1.amazonaws.com/mroptimum-fargate:latest"
+
+  ECSClusterName:
+    Type: String
+    Default: mroptimum-cluster
+    Description: "Name of the ECS cluster where Fargate tasks will run."
+
+  SubnetId1:
+    Type: AWS::EC2::Subnet::Id
+    Description: "First public subnet (must have internet access)"
+    
+  SubnetId2:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Second public subnet (for high availability)"
+  
+  SecurityGroupIds:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "Security Group ID for ECS tasks"
+
+  StageName:
+    Type: String
+    Default: Prod
+    AllowedValues: [Prod, Dev, Test]
+    Description: "Deployment stage (affects resource naming)"
+
+  LambdaImageUri:
+    Type: String
+    Description: "ECR URI of the pre-built Lambda image"
+
+
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        Application: MR Optimum
+        Host: !Ref CortexHost
+        CloudMRApiUrl: !Sub "https://${CortexHost}/api"
+        PipelineScheduler: !Sub "https://${CortexHost}/api/pipeline/request"
+        PipelineCompleted: !Sub "https://${CortexHost}/api/pipeline/completed"
+        PipelineFailed: !Sub "https://${CortexHost}/api/pipeline/failed"
+        deleteDataAPI: !Sub "https://${CortexHost}/api/data/delete"
+        updateDataAPI: !Sub "https://${CortexHost}/api/data/update"
+        PipelineDeleteAPI: !Sub "https://${CortexHost}/api/pipeline/delete"
+        EXECUTION_MODE: "mode1"  # This is Mode 1 - CloudMRHub managed
+ 
+Resources:
+
+  # DataBucket:
+  #   Type: AWS::S3::Bucket
+  #   Properties:
+  #     BucketName: !Sub "${AWS::StackName}-data"
+  #     VersioningConfiguration:
+  #       Status: Enabled
+  #     LifecycleConfiguration:
+  #       Rules:
+  #         - Id: ArchiveData
+  #           Status: Enabled
+  #           ExpirationInDays: 365  # 1 years
+  #     CorsConfiguration:
+  #       CorsRules:
+  #       - AllowedHeaders:
+  #           - "*"
+  #         AllowedMethods:
+  #           - GET
+  #           - PUT
+  #           - HEAD
+  #           - POST
+  #           - DELETE
+  #         AllowedOrigins:
+  #           - "*"
+  #         ExposedHeaders:
+  #           - "ETag"
+
+  #     PublicAccessBlockConfiguration:
+  #       BlockPublicAcls: false
+  #       BlockPublicPolicy: false
+  #       IgnorePublicAcls: false
+  #       RestrictPublicBuckets: false
+  #     OwnershipControls:
+  #       Rules:
+  #       - ObjectOwnership: BucketOwnerPreferred
+
+  # # this app is the one the routes the fialed bucket and the result bucket to cloudmr
+  # ArkApp:
+  #   Type: AWS::Serverless::Application
+  #   Properties:
+  #     Location: ark/template.yaml
+  #     Parameters:
+  #       PipelineCompleted: !Sub "https://${CortexHost}/api/pipeline/completed"
+  #       PipelineFailed: !Sub "https://${CortexHost}/api/pipeline/failed"
+  #       PipelineScheduler: !Sub "https://${CortexHost}/api/pipeline/request"
+  #       ResultsBucketPName: !Sub "${AWS::StackName}-results"
+  #       FailedBucketPName: !Sub "${AWS::StackName}-failed"
+
+  CalculationApp:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: calculation/template.yaml
+      Parameters:
+        StageName:           !Ref StageName
+        DataBucketPName:     
+          Fn::ImportValue: !Sub "${CloudMRBrainStackName}-DataBucketName"
+        ResultsBucketPName:  
+          Fn::ImportValue: !Sub "${CloudMRBrainStackName}-ResultsBucketName"
+        FailedBucketPName:   
+          Fn::ImportValue: !Sub "${CloudMRBrainStackName}-FailedBucketName"
+        FargateImageUri:     !Ref FargateImageUri
+        ECSClusterName:      !Ref ECSClusterName
+        SubnetId1:           !Ref SubnetId1
+        SubnetId2:           !Ref SubnetId2
+        SecurityGroupIds:    !Ref SecurityGroupIds
+        LambdaImageUri:      !Ref LambdaImageUri
+        
+
+  # APIApp:
+  #   Type: AWS::Serverless::Application
+  #   Properties:
+  #     Location: APIs/template.yaml
+  #     Parameters:
+  #       CortexHost: !Ref CortexHost
+  #       StageName: !Ref StageName
+  #       CalculationStateMachineARN: !GetAtt CalculationApp.Outputs.StateMachineArn
+
+  # FrontendApp:
+  #   Type: AWS::Serverless::Application
+  #   Properties:
+  #     Location: frontend/template.yaml
+  #     Parameters:
+  #       CortexHost: !Ref CortexHost
+  #       StageName: !Ref StageName
+  #       ResultsBucketPName: !GetAtt ArkApp.Outputs.ResultsBucket
+  #       FailedBucketPName: !GetAtt ArkApp.Outputs.FailedBucket
+  #       DataBucketPName: !Ref DataBucket
+  #       UserAuthorizerFunctionARN: !GetAtt APIApp.Outputs.UserAuthorizerFunctionARN
+        
+Outputs:
+  CalculationStateMachineArn:
+    Description: "ARN of the State Machine for job orchestration"
+    Value: !GetAtt CalculationApp.Outputs.StateMachineArn
+    Export:
+      Name: !Sub "${AWS::StackName}-StateMachineArn"
+
+  RunJobLambdaArn:
+    Description: "ARN of the RunJob Lambda function"
+    Value: !GetAtt CalculationApp.Outputs.RunJobLambdaArn
+    Export:
+      Name: !Sub "${AWS::StackName}-RunJobLambdaArn"
+
+  ECSClusterNameOutput:
+    Description: "Name of the ECS cluster"
+    Value: !GetAtt CalculationApp.Outputs.ECSClusterName
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSClusterName"
+
+  Mode:
+    Description: "Execution mode (mode1 = CloudMRHub managed)"
+    Value: "mode1"
+  # QueueJobApiUrl:
+  #   Description: "Queue-Job API endpoint URL"
+  #   Value: !GetAtt APIApp.Outputs.QueueJobApiUrl
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-QueueJobApiUrl"
+  
+  # QueueJobApiKeyID:
+  #   Description: "API Key for Queue-Job API"
+  #   Value: !GetAtt APIApp.Outputs.QueueJobApiKeyID
+
+  # DeleteJobApi:
+  #   Description: "API Gateway endpoint URL for Delete function"
+  #   Value: !GetAtt FrontendApp.Outputs.DeleteJobApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-DeleteJobApi"
+
+  # GetZipApi:
+  #   Description: "API Gateway endpoint URL for GetZip function"
+  #   Value: !GetAtt FrontendApp.Outputs.GetZipApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-GetZipApi"
+
+  # DataReadApi:
+  #   Description: "API Gateway endpoint URL for DataRead function"
+  #   Value: !GetAtt FrontendApp.Outputs.DataReadApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-DataReadApi"
+
+  # DeleteFileApi:
+  #   Description: "API Gateway endpoint URL for DeleteFile function"
+  #   Value: !GetAtt FrontendApp.Outputs.DeleteFileApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-DeleteFileApi"
+
+  # UpdateFileApi:
+  #   Description: "API Gateway endpoint URL for UpdateFile function"
+  #   Value: !GetAtt FrontendApp.Outputs.UpdateFileApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-UpdateFileApi"
+
+  # UploadRequestApi:
+  #   Description: "API Gateway endpoint URL for UploadRequest function"
+  #   Value: !GetAtt FrontendApp.Outputs.UploadRequestApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-UploadRequestApi"
+
+  # UploadInitiateApi:
+  #   Description: "API Gateway endpoint URL for UploadInitiate function"
+  #   Value: !GetAtt FrontendApp.Outputs.UploadInitiateApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-UploadInitiateApi"
+
+  # DownloadRequestApi:
+  #   Description: "API Gateway endpoint URL for DownloadRequest function"
+  #   Value: !GetAtt FrontendApp.Outputs.DownloadRequestApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-DownloadRequestApi"
+
+  # UploadFinalizeApi:
+  #   Description: "API Gateway endpoint URL for UploadFinalize function"
+  #   Value: !GetAtt FrontendApp.Outputs.UploadFinalizeApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-UploadFinalizeApi"
+
+  # UploadResultsInitiateApi:
+  #   Description: "API Gateway endpoint URL for UploadResultsInitiate function"
+  #   Value: !GetAtt FrontendApp.Outputs.UploadResultsInitiateApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-UploadResultsInitiateApi"
+
+  # UploadResultsFinalizeApi:
+  #   Description: "API Gateway endpoint URL for UploadResultsFinalize function"
+  #   Value: !GetAtt FrontendApp.Outputs.UploadResultsFinalizeApi
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-UploadResultsFinalizeApi"
+
+  # FrontendAPI:
+  #   Description: "Base API Gateway endpoint URL for Frontend"
+  #   Value: !GetAtt FrontendApp.Outputs.FrontendAPI
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}-FrontendAPI"
+

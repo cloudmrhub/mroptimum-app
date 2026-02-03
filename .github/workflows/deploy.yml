@@ -1,0 +1,201 @@
+name: Deploy MR Optimum Backend (Mode 1)
+
+on:
+  push:
+    branches:
+      - main
+      - mode1_mode2
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - dev
+
+env:
+  AWS_REGION: us-east-1
+  ECR_PRIVATE_REPO: mroptimum
+  ECR_PUBLIC_REPO: cloudmrhub/mroptimum
+  STACK_NAME: mroptimum-app
+  APP_ID: mroptimum  # CloudMR Brain App ID
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      state_machine_arn: ${{ steps.get-outputs.outputs.state_machine_arn }}
+      lambda_image_uri: ${{ steps.build-images.outputs.lambda_image_uri }}
+      fargate_image_uri: ${{ steps.build-images.outputs.fargate_image_uri }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          # Use git SHA for versioning
+          IMAGE_TAG="${GITHUB_SHA::8}"
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "Image tag: ${IMAGE_TAG}"
+
+      - name: Login to Amazon ECR (Private)
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Login to Amazon ECR Public
+        run: |
+          aws ecr-public get-login-password --region us-east-1 | \
+          docker login --username AWS --password-stdin public.ecr.aws
+
+      - name: Build and push Docker images
+        id: build-images
+        env:
+          PRIVATE_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          cd calculation/src
+          
+          # Build Lambda image
+          echo "Building Lambda image..."
+          docker build -f DockerfileLambda -t mroptimum-lambda:${IMAGE_TAG} .
+          
+          # Build Fargate image  
+          echo "Building Fargate image..."
+          docker build -f DockerfileFargate -t mroptimum-fargate:${IMAGE_TAG} .
+          
+          # Tag and push to Private ECR (for Mode 1)
+          PRIVATE_LAMBDA_URI="${PRIVATE_ECR_REGISTRY}/${ECR_PRIVATE_REPO}-lambda:${IMAGE_TAG}"
+          PRIVATE_FARGATE_URI="${PRIVATE_ECR_REGISTRY}/${ECR_PRIVATE_REPO}-fargate:${IMAGE_TAG}"
+          PRIVATE_LAMBDA_LATEST="${PRIVATE_ECR_REGISTRY}/${ECR_PRIVATE_REPO}-lambda:latest"
+          PRIVATE_FARGATE_LATEST="${PRIVATE_ECR_REGISTRY}/${ECR_PRIVATE_REPO}-fargate:latest"
+          
+          docker tag mroptimum-lambda:${IMAGE_TAG} ${PRIVATE_LAMBDA_URI}
+          docker tag mroptimum-lambda:${IMAGE_TAG} ${PRIVATE_LAMBDA_LATEST}
+          docker tag mroptimum-fargate:${IMAGE_TAG} ${PRIVATE_FARGATE_URI}
+          docker tag mroptimum-fargate:${IMAGE_TAG} ${PRIVATE_FARGATE_LATEST}
+          
+          docker push ${PRIVATE_LAMBDA_URI}
+          docker push ${PRIVATE_LAMBDA_LATEST}
+          docker push ${PRIVATE_FARGATE_URI}
+          docker push ${PRIVATE_FARGATE_LATEST}
+          
+          # Tag and push to Public ECR (for Mode 2 users)
+          PUBLIC_LAMBDA_URI="public.ecr.aws/${ECR_PUBLIC_REPO}-lambda:${IMAGE_TAG}"
+          PUBLIC_FARGATE_URI="public.ecr.aws/${ECR_PUBLIC_REPO}-fargate:${IMAGE_TAG}"
+          PUBLIC_LAMBDA_LATEST="public.ecr.aws/${ECR_PUBLIC_REPO}-lambda:latest"
+          PUBLIC_FARGATE_LATEST="public.ecr.aws/${ECR_PUBLIC_REPO}-fargate:latest"
+          
+          docker tag mroptimum-lambda:${IMAGE_TAG} ${PUBLIC_LAMBDA_URI}
+          docker tag mroptimum-lambda:${IMAGE_TAG} ${PUBLIC_LAMBDA_LATEST}
+          docker tag mroptimum-fargate:${IMAGE_TAG} ${PUBLIC_FARGATE_URI}
+          docker tag mroptimum-fargate:${IMAGE_TAG} ${PUBLIC_FARGATE_LATEST}
+          
+          docker push ${PUBLIC_LAMBDA_URI}
+          docker push ${PUBLIC_LAMBDA_LATEST}
+          docker push ${PUBLIC_FARGATE_URI}
+          docker push ${PUBLIC_FARGATE_LATEST}
+          
+          # Output URIs for SAM deployment
+          echo "lambda_image_uri=${PRIVATE_LAMBDA_LATEST}" >> $GITHUB_OUTPUT
+          echo "fargate_image_uri=${PRIVATE_FARGATE_LATEST}" >> $GITHUB_OUTPUT
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: SAM Build
+        run: sam build
+
+      - name: SAM Deploy (Mode 1)
+        id: sam-deploy
+        run: |
+          sam deploy \
+            --stack-name ${{ env.STACK_NAME }} \
+            --parameter-overrides \
+              LambdaImageUri=${{ steps.build-images.outputs.lambda_image_uri }} \
+              FargateImageUri=${{ steps.build-images.outputs.fargate_image_uri }} \
+              CortexHost=${{ secrets.CLOUDMR_API_HOST }} \
+              ECSClusterName=${{ secrets.ECS_CLUSTER_NAME }} \
+              SubnetId1=${{ secrets.SUBNET_ID_1 }} \
+              SubnetId2=${{ secrets.SUBNET_ID_2 }} \
+              SecurityGroupIds=${{ secrets.SECURITY_GROUP_ID }} \
+              StageName=Prod \
+            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+      - name: Get Stack Outputs
+        id: get-outputs
+        run: |
+          STATE_MACHINE_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`CalculationStateMachineArn`].OutputValue' \
+            --output text)
+          echo "state_machine_arn=${STATE_MACHINE_ARN}" >> $GITHUB_OUTPUT
+          echo "State Machine ARN: ${STATE_MACHINE_ARN}"
+
+  register-computing-unit:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+
+      - name: Register Computing Unit with CloudMR Brain (Mode 1)
+        env:
+          CLOUDMR_API_URL: ${{ secrets.CLOUDMR_API_URL }}
+          CLOUDMR_ADMIN_TOKEN: ${{ secrets.CLOUDMR_ADMIN_TOKEN }}
+          STATE_MACHINE_ARN: ${{ needs.build-and-deploy.outputs.state_machine_arn }}
+          IMAGE_TAG: ${{ needs.build-and-deploy.outputs.image_tag }}
+        run: |
+          # Register Mode 1 computing unit (available to all users)
+          curl -X POST "${CLOUDMR_API_URL}/api/computing-unit/register" \
+            -H "Authorization: Bearer ${CLOUDMR_ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "appId": "${{ env.APP_ID }}",
+              "mode": "mode1",
+              "provider": "cloudmrhub",
+              "awsAccountId": "${{ steps.account.outputs.account_id }}",
+              "region": "${{ env.AWS_REGION }}",
+              "stateMachineArn": "'"${STATE_MACHINE_ARN}"'",
+              "resultsBucket": "${{ secrets.RESULTS_BUCKET }}",
+              "failedBucket": "${{ secrets.FAILED_BUCKET }}",
+              "dataBucket": "${{ secrets.DATA_BUCKET }}",
+              "isDefault": true,
+              "isShared": true,
+              "imageTag": "'"${IMAGE_TAG}"'"
+            }'
+
+      - name: Update Mode 2 deployment package
+        run: |
+          echo "Mode 2 users should pull from:"
+          echo "  Lambda: public.ecr.aws/${{ env.ECR_PUBLIC_REPO }}-lambda:${{ needs.build-and-deploy.outputs.image_tag }}"
+          echo "  Fargate: public.ecr.aws/${{ env.ECR_PUBLIC_REPO }}-fargate:${{ needs.build-and-deploy.outputs.image_tag }}"

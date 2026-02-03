@@ -1,0 +1,49 @@
+# SAM configuration file for MR Optimum Backend
+# This file contains deployment configurations for Mode 1 (CloudMRHub managed)
+
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "mroptimum-app"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+confirm_changeset = true
+resolve_s3 = true
+fail_on_empty_changeset = false
+
+# Production environment (Mode 1)
+[prod]
+[prod.deploy.parameters]
+stack_name = "mroptimum-app-prod"
+s3_prefix = "mroptimum-app-prod"
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
+parameter_overrides = [
+    "StageName=Prod",
+    "CloudMRBrainStackName=py-cloudmr-brain"
+]
+tags = "App=\"MR Optimum\" Environment=\"Production\" Mode=\"mode1\""
+
+# Development environment (Mode 1)
+[dev]
+[dev.deploy.parameters]
+stack_name = "mroptimum-app-dev"
+s3_prefix = "mroptimum-app-dev"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM"
+parameter_overrides = [
+    "StageName=Dev",
+    "CloudMRBrainStackName=py-cloudmr-brain-dev"
+]
+tags = "App=\"MR Optimum\" Environment=\"Development\" Mode=\"mode1\""
