@@ -8,7 +8,7 @@ on:
     paths:
       - 'template.yaml'
       - 'calculation/template.yaml'
-      - '.github/workflows/deploy-mode1.yml'
+      - '.github/workflows/deploy-and-register.yml'
       - 'calculation/src/handler.py'  # Handler changes need re-deploy but not rebuild
       
   workflow_dispatch:
