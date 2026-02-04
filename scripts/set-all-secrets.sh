@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Set all GitHub Actions secrets used by the Mode1 workflow.
 # Usage:
-#   ./set-all-secrets.sh <owner/repo>
+#   ./set-all-secrets.sh <owner/repo>./scripts/set-all-secrets.sh cloudmrhub/mroptimum-app
 # The script reads values from environment variables if present, otherwise prompts.
 
 set -euo pipefail

@@ -259,5 +259,5 @@ test_output.dat
 exports.sh
 # Local credentials and exports
 exports.sh
-exports.*.sh
+exports.sh.*
 *.bak.*

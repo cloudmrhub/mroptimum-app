@@ -4,11 +4,11 @@ This guide will help you test Mode 1 deployment on your local AWS account.
 
 ## Prerequisites Check Results
 
-✅ **AWS Account**: `469266894233` (Profile: nyu)  
+✅ **AWS Account**: `xxxxxxxxxxxxx` (Profile: nyu)  
 ✅ **SAM CLI**: Installed  
-✅ **CloudMR Brain Stack**: `cloudmrhub-brain` (found)  
+✅ **CloudMR Brain Stack**: `xxxx-brain` (found)  
 ⚠️ **Docker**: Installed but not running  
-⚠️ **VPC**: No default VPC (will use cloudmrhub-vpc)  
+⚠️ **VPC**: No default VPC (will use xxx-vpc)  
 ⚠️ **ECR**: Repositories don't exist yet
 
 ## Step-by-Step Testing
@@ -38,8 +38,8 @@ This creates:
 ### 3. Get VPC and Subnet Information
 
 ```bash
-# Use cloudmrhub-vpc
-VPC_ID="vpc-0fb0bce217a84c2dd"
+# Use xxxxxxxxxxxxx-vpc
+VPC_ID="vpc-xxxxxxxxxxxxx"
 
 # Get public subnets in that VPC
 aws ec2 describe-subnets \
@@ -66,8 +66,8 @@ This will:
 
 **Expected output:**
 ```
-Lambda URI:  469266894233.dkr.ecr.us-east-1.amazonaws.com/mroptimum-lambda:latest
-Fargate URI: 469266894233.dkr.ecr.us-east-1.amazonaws.com/mroptimum-fargate:latest
+Lambda URI:  xxxxxxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/mroptimum-lambda:latest
+Fargate URI: xxxxxxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/mroptimum-fargate:latest
 ```
 
 ### 5. Deploy Mode 1 Stack
@@ -80,18 +80,18 @@ cd /data/mroptimum-app
 # Set environment variables
 export AWS_PROFILE=nyu
 export AWS_REGION=us-east-1
-export STACK_NAME=mroptimum-app-test
-export CLOUDMR_BRAIN_STACK=cloudmrhub-brain
+export STACK_NAME=xxx-app-test
+export CLOUDMR_BRAIN_STACK=xxxxxxxxxxxxx-brain
 
 # Deploy
 ./scripts/deploy-mode1-local.sh
 ```
 
 When prompted for networking, provide:
-- **VPC**: `vpc-0fb0bce217a84c2dd` (cloudmrhub-vpc)
+- **VPC**: `vpc-xxxx` (xxxxxxxxxxxxx-vpc)
 - **Subnet 1**: (from step 3)
 - **Subnet 2**: (from step 3)
-- **CloudMR Host**: `api.cloudmrhub.com` (or your host)
+- **CloudMR Host**: `api.xxxxxxxxxxxxx.com` (or your host)
 
 **Deployment time**: ~5-10 minutes
 
@@ -130,19 +130,19 @@ Once testing is successful, register the computing unit:
 # Get your admin token from CloudMR Brain
 ADMIN_TOKEN="your-admin-token-here"
 
-curl -X POST "https://api.cloudmrhub.com/api/computing-unit/register" \
+curl -X POST "https://api.xxxxxxxxxxxxx.com/api/computing-unit/register" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "appId": "mroptimum",
     "mode": "mode1",
-    "provider": "cloudmrhub",
-    "awsAccountId": "469266894233",
+    "provider": "xxxxxxxxxxxxx",
+    "awsAccountId": "xxxxxxxxxxxxx",
     "region": "us-east-1",
     "stateMachineArn": "'"$STATE_MACHINE_ARN"'",
-    "resultsBucket": "cloudmr-results-cloudmrhub-brain-us-east-1",
-    "failedBucket": "cloudmr-failed-cloudmrhub-brain-us-east-1",
-    "dataBucket": "cloudmr-data-cloudmrhub-brain-us-east-1",
+    "resultsBucket": "cloudmr-results-xxxxxxxxxxxxx-brain-us-east-1",
+    "failedBucket": "cloudmr-failed-xxxxxxxxxxxxx-brain-us-east-1",
+    "dataBucket": "cloudmr-data-xxxxxxxxxxxxx-brain-us-east-1",
     "isDefault": true,
     "isShared": true
   }'
@@ -152,13 +152,13 @@ curl -X POST "https://api.cloudmrhub.com/api/computing-unit/register" \
 
 ### Re-run prerequisites check
 ```bash
-AWS_PROFILE=nyu CLOUDMR_BRAIN_STACK=cloudmrhub-brain ./scripts/test-mode1-prerequisites.sh
+AWS_PROFILE=nyu CLOUDMR_BRAIN_STACK=xxxxxxxxxxxxx-brain ./scripts/test-mode1-prerequisites.sh
 ```
 
 ### View CloudFormation events
 ```bash
 aws cloudformation describe-stack-events \
-  --stack-name mroptimum-app-test \
+  --stack-name xxx-app-test \
   --profile nyu \
   --region us-east-1 \
   --max-items 10
@@ -168,7 +168,7 @@ aws cloudformation describe-stack-events \
 ```bash
 # Get Lambda function name from stack
 LAMBDA_FUNCTION=$(aws cloudformation describe-stack-resources \
-  --stack-name mroptimum-app-test \
+  --stack-name xxx-app-test \
   --profile nyu \
   --region us-east-1 \
   --query "StackResources[?ResourceType=='AWS::Lambda::Function'].PhysicalResourceId" \
@@ -202,14 +202,14 @@ aws cloudformation delete-stack \
   - **Fix**: Login to ECR again
   ```bash
   aws ecr get-login-password --profile nyu --region us-east-1 | \
-    docker login --username AWS --password-stdin 469266894233.dkr.ecr.us-east-1.amazonaws.com
+    docker login --username AWS --password-stdin xxxxxxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com
   ```
 
 ### SAM deploy fails with "Export not found"
 - **Error**: `Export cloudmr-brain-DataBucketName not found`
   - **Fix**: Set correct stack name
   ```bash
-  export CLOUDMR_BRAIN_STACK=cloudmrhub-brain
+  export CLOUDMR_BRAIN_STACK=xxxxxxxxxxxxx-brain
   ```
 
 ### ECS task fails to start
