@@ -9,6 +9,7 @@ on:
       - 'calculation/**'
       - 'template.yaml'
       - '.github/workflows/deploy-mode1.yml'
+      
   workflow_dispatch:
     inputs:
       skip_build:
