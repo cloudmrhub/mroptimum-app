@@ -1,0 +1,342 @@
+name: Mode 1 - Deploy & Register
+
+on:
+  push:
+    branches:
+      - main
+      - mode1_mode2
+    paths:
+      - 'template.yaml'
+      - 'calculation/template.yaml'
+      - '.github/workflows/deploy-mode1.yml'
+      - 'calculation/src/handler.py'  # Handler changes need re-deploy but not rebuild
+      
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild images even if no calculation/ changes'
+        required: false
+        default: false
+        type: boolean
+      skip_register:
+        description: 'Skip computing unit registration'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: mroptimum-app-test
+  CLOUDMR_BRAIN_STACK: cloudmrhub-brain
+  LAMBDA_REPO: mroptimum-lambda
+  FARGATE_REPO: mroptimum-fargate
+  APP_NAME: "MR Optimum"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ==========================================================================
+  # Optional: Rebuild images if forced via workflow_dispatch
+  # ==========================================================================
+  build-images-optional:
+    name: Build Images (Optional)
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.force_rebuild == 'true' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::8}-$(date +%Y%m%d-%H%M%S)"
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          cd calculation/src
+
+          LAMBDA_URI="${ECR_REGISTRY}/${LAMBDA_REPO}"
+          FARGATE_URI="${ECR_REGISTRY}/${FARGATE_REPO}"
+
+          echo "Building Lambda image..."
+          docker build --provenance=false -f DockerfileLambda -t ${LAMBDA_REPO}:${IMAGE_TAG} .
+          docker tag ${LAMBDA_REPO}:${IMAGE_TAG} ${LAMBDA_URI}:${IMAGE_TAG}
+          docker tag ${LAMBDA_REPO}:${IMAGE_TAG} ${LAMBDA_URI}:latest
+
+          echo "Building Fargate image..."
+          docker build --provenance=false -f DockerfileFargate -t ${FARGATE_REPO}:${IMAGE_TAG} .
+          docker tag ${FARGATE_REPO}:${IMAGE_TAG} ${FARGATE_URI}:${IMAGE_TAG}
+          docker tag ${FARGATE_REPO}:${IMAGE_TAG} ${FARGATE_URI}:latest
+
+          docker push ${LAMBDA_URI}:${IMAGE_TAG}
+          docker push ${LAMBDA_URI}:latest
+          docker push ${FARGATE_URI}:${IMAGE_TAG}
+          docker push ${FARGATE_URI}:latest
+
+          echo "✓ Images rebuilt and pushed"
+
+  # ==========================================================================
+  # JOB 1: Deploy SAM Stack (uses :latest images)
+  # ==========================================================================
+  deploy-stack:
+    name: Deploy SAM Stack
+    runs-on: ubuntu-latest
+    needs: [build-images-optional]
+    if: ${{ always() }}  # Run even if build was skipped
+    outputs:
+      state_machine_arn: ${{ steps.outputs.outputs.state_machine_arn }}
+      data_bucket: ${{ steps.outputs.outputs.data_bucket }}
+      results_bucket: ${{ steps.outputs.outputs.results_bucket }}
+      failed_bucket: ${{ steps.outputs.outputs.failed_bucket }}
+      account_id: ${{ steps.account.outputs.account_id }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+
+      - name: Construct Image URIs (using :latest tag)
+        id: images
+        env:
+          ACCOUNT_ID: ${{ steps.account.outputs.account_id }}
+        run: |
+          ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          LAMBDA_URI="${ECR_REGISTRY}/${LAMBDA_REPO}:latest"
+          FARGATE_URI="${ECR_REGISTRY}/${FARGATE_REPO}:latest"
+          echo "lambda_image_uri=${LAMBDA_URI}" >> $GITHUB_OUTPUT
+          echo "fargate_image_uri=${FARGATE_URI}" >> $GITHUB_OUTPUT
+          echo "Lambda Image (latest):  ${LAMBDA_URI}"
+          echo "Fargate Image (latest): ${FARGATE_URI}"
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: SAM Build
+        run: sam build
+
+      - name: SAM Deploy
+        run: |
+          sam deploy \
+            --stack-name ${{ env.STACK_NAME }} \
+            --parameter-overrides \
+              LambdaImageUri=${{ steps.images.outputs.lambda_image_uri }} \
+              FargateImageUri=${{ steps.images.outputs.fargate_image_uri }} \
+              CortexHost=${{ secrets.CLOUDMR_API_HOST || 'api.cloudmrhub.com' }} \
+              CloudMRBrainStackName=${{ env.CLOUDMR_BRAIN_STACK }} \
+              ECSClusterName=${{ env.STACK_NAME }}-cluster \
+              SubnetId1=${{ secrets.SUBNET_ID_1 }} \
+              SubnetId2=${{ secrets.SUBNET_ID_2 }} \
+              SecurityGroupIds=${{ secrets.SECURITY_GROUP_ID }} \
+              StageName=Prod \
+            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+      - name: Get Stack Outputs
+        id: outputs
+        run: |
+          echo "Fetching stack outputs..."
+          
+          STATE_MACHINE_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`CalculationStateMachineArn`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -z "$STATE_MACHINE_ARN" ] || [ "$STATE_MACHINE_ARN" = "None" ]; then
+            STATE_MACHINE_ARN=$(aws cloudformation describe-stacks \
+              --stack-name ${{ env.STACK_NAME }} \
+              --query 'Stacks[0].Outputs[?contains(OutputKey, `StateMachine`)].OutputValue' \
+              --output text 2>/dev/null | head -1 || echo "")
+          fi
+          
+          DATA_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.CLOUDMR_BRAIN_STACK }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`DataBucketName`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+          
+          RESULTS_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.CLOUDMR_BRAIN_STACK }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`ResultsBucketName`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+          
+          FAILED_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.CLOUDMR_BRAIN_STACK }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`FailedBucketName`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+          
+          echo "state_machine_arn=${STATE_MACHINE_ARN}" >> $GITHUB_OUTPUT
+          echo "data_bucket=${DATA_BUCKET}" >> $GITHUB_OUTPUT
+          echo "results_bucket=${RESULTS_BUCKET}" >> $GITHUB_OUTPUT
+          echo "failed_bucket=${FAILED_BUCKET}" >> $GITHUB_OUTPUT
+          
+          echo "╔═══════════════════════════════════════════════════════════════╗"
+          echo "║   Stack Outputs                                               ║"
+          echo "╚═══════════════════════════════════════════════════════════════╝"
+          echo "State Machine ARN: ${STATE_MACHINE_ARN}"
+          echo "Data Bucket:       ${DATA_BUCKET}"
+          echo "Results Bucket:    ${RESULTS_BUCKET}"
+          echo "Failed Bucket:     ${FAILED_BUCKET}"
+
+  # ==========================================================================
+  # JOB 2: Register Computing Unit
+  # ==========================================================================
+  register-computing-unit:
+    name: Register Computing Unit
+    runs-on: ubuntu-latest
+    needs: [deploy-stack]
+    if: ${{ github.event.inputs.skip_register != 'true' && needs.deploy-stack.result == 'success' }}
+
+    steps:
+      - name: Register Computing Unit with CloudMR Brain
+        env:
+          CLOUDMR_API_URL: ${{ secrets.CLOUDMR_API_URL }}
+          ADMIN_TOKEN_SECRET: ${{ secrets.CLOUDMR_ADMIN_TOKEN }}
+          ADMIN_EMAIL: ${{ secrets.CLOUDMR_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.CLOUDMR_ADMIN_PASSWORD }}
+          STATE_MACHINE_ARN: ${{ needs.deploy-stack.outputs.state_machine_arn }}
+          AWS_ACCOUNT_ID: ${{ needs.deploy-stack.outputs.account_id }}
+          DATA_BUCKET: ${{ needs.deploy-stack.outputs.data_bucket }}
+          RESULTS_BUCKET: ${{ needs.deploy-stack.outputs.results_bucket }}
+          FAILED_BUCKET: ${{ needs.deploy-stack.outputs.failed_bucket }}
+        run: |
+          set -euo pipefail
+          
+          echo "╔═══════════════════════════════════════════════════════════════╗"
+          echo "║   Registering Computing Unit with CloudMR Brain               ║"
+          echo "╚═══════════════════════════════════════════════════════════════╝"
+          echo ""
+          
+          if [ -z "$CLOUDMR_API_URL" ]; then
+            echo "❌ CLOUDMR_API_URL secret is not set"
+            exit 1
+          fi
+          
+          # Get token
+          if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
+            echo "🔑 Logging in to get fresh admin token..."
+            LOGIN_RESP=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\": \"${ADMIN_EMAIL}\", \"password\": \"${ADMIN_PASSWORD}\"}")
+            
+            ADMIN_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.idToken // empty')
+            
+            if [ -z "$ADMIN_TOKEN" ]; then
+              echo "❌ Login failed. Response:"
+              echo "$LOGIN_RESP" | jq .
+              exit 1
+            fi
+            echo "✓ Obtained fresh token"
+          elif [ -n "${ADMIN_TOKEN_SECRET:-}" ]; then
+            echo "🔑 Using pre-configured CLOUDMR_ADMIN_TOKEN secret"
+            ADMIN_TOKEN="$ADMIN_TOKEN_SECRET"
+          else
+            echo "❌ No authentication credentials available"
+            exit 1
+          fi
+          
+          if [ -z "$STATE_MACHINE_ARN" ]; then
+            echo "❌ State Machine ARN not available"
+            exit 1
+          fi
+          
+          echo "API URL:           ${CLOUDMR_API_URL}"
+          echo "State Machine ARN: ${STATE_MACHINE_ARN}"
+          echo ""
+          
+          # Register computing unit
+          REGISTER_RESP=$(curl -s -X POST "${CLOUDMR_API_URL}/api/computing-unit/register" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "appName": "${{ env.APP_NAME }}",
+              "mode": "mode1",
+              "provider": "cloudmrhub",
+              "awsAccountId": "'"${AWS_ACCOUNT_ID}"'",
+              "region": "${{ env.AWS_REGION }}",
+              "stateMachineArn": "'"${STATE_MACHINE_ARN}"'",
+              "dataBucket": "'"${DATA_BUCKET}"'",
+              "resultsBucket": "'"${RESULTS_BUCKET}"'",
+              "failedBucket": "'"${FAILED_BUCKET}"'",
+              "isDefault": true
+            }')
+          
+          echo "$REGISTER_RESP" | jq .
+          
+          CU_ID=$(echo "$REGISTER_RESP" | jq -r '.computingUnitId // empty')
+          
+          if [ -n "$CU_ID" ]; then
+            echo ""
+            echo "╔═══════════════════════════════════════════════════════════════╗"
+            echo "║   ✓ Registration Successful                                   ║"
+            echo "╚═══════════════════════════════════════════════════════════════╝"
+            echo "Computing Unit ID: ${CU_ID}"
+          else
+            echo ""
+            echo "❌ Registration failed"
+            exit 1
+          fi
+
+  # ==========================================================================
+  # JOB 3: Summary
+  # ==========================================================================
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [deploy-stack, register-computing-unit]
+    if: always()
+
+    steps:
+      - name: Print Summary
+        run: |
+          echo "╔═══════════════════════════════════════════════════════════════╗"
+          echo "║   Mode 1 Deployment Summary                                   ║"
+          echo "╚═══════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "Deploy Stack:      ${{ needs.deploy-stack.result }}"
+          echo "Register CU:       ${{ needs.register-computing-unit.result }}"
+          echo ""
+          echo "Stack Name: ${{ env.STACK_NAME }}"
+          echo "Region:    ${{ env.AWS_REGION }}"
+          echo ""
+          if [ "${{ needs.register-computing-unit.result }}" = "success" ]; then
+            echo "✓ Deployment complete!"
+          else
+            echo "⚠ Deployment completed with issues"
+          fi
