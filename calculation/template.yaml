@@ -3,7 +3,7 @@ Transform: AWS::Serverless-2016-10-31
 
 Description: >
   Build and deploy both a Lambda container and a Fargate task from the same app.py.
-  Use a state machine to choose Lambda vs Fargate at runtime based on task["name"].
+  Use a state machine to choose Lambda vs Fargate at runtime based on task["name"]. 
 
 Parameters:
   # CortexHost:
