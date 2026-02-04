@@ -314,7 +314,13 @@ Required secrets for the workflow:
 | `SUBNET_ID_2` | Second subnet for Fargate | `subnet-0b5d882b93cc6ff2e` |
 | `SECURITY_GROUP_ID` | Security group for ECS tasks | `sg-0cb8fdbe5efef42d1` |
 | `CLOUDMR_API_URL` | CloudMR Brain API endpoint | `https://f41j488v7j.execute-api.us-east-1.amazonaws.com/Prod` |
-| `CLOUDMR_ADMIN_TOKEN` | Admin token for registration | `eyJraWQiOi...` |
+
+**Authentication secrets** (choose one approach):
+
+| Approach | Secrets | Notes |
+|----------|---------|-------|
+| **Recommended: Auto-refresh** | `CLOUDMR_ADMIN_EMAIL` + `CLOUDMR_ADMIN_PASSWORD` | Workflow logs in and gets fresh token each run. Never expires. |
+| Legacy: Static token | `CLOUDMR_ADMIN_TOKEN` | Must be refreshed manually when token expires (~1 hour). |
 
 Optional secrets:
 
@@ -325,16 +331,16 @@ Optional secrets:
 #### Step 3: Set Secrets via GitHub CLI
 
 ```bash
-# Using the helper script
-./scripts/setup-github-secrets.sh cloudmrhub/mroptimum-app
-
-# Or manually with gh CLI
+# Required infrastructure secrets
 gh secret set AWS_DEPLOY_ROLE_ARN --repo cloudmrhub/mroptimum-app --body "arn:aws:iam::469266894233:role/GitHubActionsRole-mroptimum-app"
 gh secret set SUBNET_ID_1 --repo cloudmrhub/mroptimum-app --body "subnet-0a2008dc8f305421f"
 gh secret set SUBNET_ID_2 --repo cloudmrhub/mroptimum-app --body "subnet-0b5d882b93cc6ff2e"
 gh secret set SECURITY_GROUP_ID --repo cloudmrhub/mroptimum-app --body "sg-0cb8fdbe5efef42d1"
 gh secret set CLOUDMR_API_URL --repo cloudmrhub/mroptimum-app --body "https://f41j488v7j.execute-api.us-east-1.amazonaws.com/Prod"
-gh secret set CLOUDMR_ADMIN_TOKEN --repo cloudmrhub/mroptimum-app --body "your-admin-token"
+
+# Authentication (recommended: email + password for auto-refresh)
+gh secret set CLOUDMR_ADMIN_EMAIL --repo cloudmrhub/mroptimum-app --body "eros.montin@nyulangone.org"
+gh secret set CLOUDMR_ADMIN_PASSWORD --repo cloudmrhub/mroptimum-app  # prompts for password interactively
 ```
 
 ### Manual Workflow Dispatch Options

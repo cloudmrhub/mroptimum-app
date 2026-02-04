@@ -262,7 +262,10 @@ jobs:
       - name: Register Computing Unit with CloudMR Brain
         env:
           CLOUDMR_API_URL: ${{ secrets.CLOUDMR_API_URL }}
-          ADMIN_TOKEN: ${{ secrets.CLOUDMR_ADMIN_TOKEN }}
+          # Token can come from: (1) login with email+password, or (2) pre-set token secret
+          ADMIN_TOKEN_SECRET: ${{ secrets.CLOUDMR_ADMIN_TOKEN }}
+          ADMIN_EMAIL: ${{ secrets.CLOUDMR_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.CLOUDMR_ADMIN_PASSWORD }}
           STATE_MACHINE_ARN: ${{ needs.deploy-stack.outputs.state_machine_arn }}
           AWS_ACCOUNT_ID: ${{ needs.deploy-stack.outputs.account_id }}
           DATA_BUCKET: ${{ needs.deploy-stack.outputs.data_bucket }}
@@ -282,8 +285,32 @@ jobs:
             exit 1
           fi
           
-          if [ -z "$ADMIN_TOKEN" ]; then
-            echo "❌ CLOUDMR_ADMIN_TOKEN secret is not set"
+          # ──────────────────────────────────────────────────────────────────
+          # Automatic token refresh: if email+password are set, login to get
+          # a fresh token. Otherwise fall back to CLOUDMR_ADMIN_TOKEN secret.
+          # ──────────────────────────────────────────────────────────────────
+          if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
+            echo "🔑 Logging in to get fresh admin token..."
+            LOGIN_RESP=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\": \"${ADMIN_EMAIL}\", \"password\": \"${ADMIN_PASSWORD}\"}")
+            
+            ADMIN_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.idToken // empty')
+            
+            if [ -z "$ADMIN_TOKEN" ]; then
+              echo "❌ Login failed. Response:"
+              echo "$LOGIN_RESP" | jq .
+              exit 1
+            fi
+            echo "✓ Obtained fresh token (length: ${#ADMIN_TOKEN} chars)"
+          elif [ -n "${ADMIN_TOKEN_SECRET:-}" ]; then
+            echo "🔑 Using pre-configured CLOUDMR_ADMIN_TOKEN secret"
+            ADMIN_TOKEN="$ADMIN_TOKEN_SECRET"
+          else
+            echo "❌ No authentication credentials available."
+            echo "   Set either:"
+            echo "   - CLOUDMR_ADMIN_EMAIL + CLOUDMR_ADMIN_PASSWORD (recommended), or"
+            echo "   - CLOUDMR_ADMIN_TOKEN"
             exit 1
           fi
           
@@ -380,9 +407,22 @@ jobs:
       - name: Verify Registration
         env:
           CLOUDMR_API_URL: ${{ secrets.CLOUDMR_API_URL }}
-          ADMIN_TOKEN: ${{ secrets.CLOUDMR_ADMIN_TOKEN }}
+          ADMIN_TOKEN_SECRET: ${{ secrets.CLOUDMR_ADMIN_TOKEN }}
+          ADMIN_EMAIL: ${{ secrets.CLOUDMR_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.CLOUDMR_ADMIN_PASSWORD }}
         run: |
           echo "Verifying computing unit list..."
+          
+          # Get token (same logic as registration step)
+          if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
+            ADMIN_TOKEN=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\": \"${ADMIN_EMAIL}\", \"password\": \"${ADMIN_PASSWORD}\"}" \
+              | jq -r '.idToken // empty')
+          else
+            ADMIN_TOKEN="${ADMIN_TOKEN_SECRET:-}"
+          fi
+          
           curl -s -G -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${CLOUDMR_API_URL}/api/computing-unit/list" \
             --data-urlencode "appName=${{ env.APP_NAME }}" \
