@@ -256,3 +256,8 @@ Backend/samconfig.toml
 run-job-python-FG.zip
 synthetic_twix.dat
 test_output.dat
+exports.sh
+# Local credentials and exports
+exports.sh
+exports.*.sh
+*.bak.*
