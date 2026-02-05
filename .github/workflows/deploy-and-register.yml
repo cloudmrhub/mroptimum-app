@@ -1,4 +1,4 @@
-name: Mode 1 - Deploy & Register
+name: Mode 1 - Deploy & Register 
 
 on:
   push:
