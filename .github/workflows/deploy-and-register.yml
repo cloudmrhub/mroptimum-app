@@ -221,8 +221,7 @@ jobs:
     name: Check Existing Mode 1 Unit
     runs-on: ubuntu-latest
     needs: [deploy-stack]
-    # Always run check after deploy-stack succeeds; registration will skip if unit exists
-    if: ${{ needs.deploy-stack.result == 'success' }}
+    # Always run check after deploy-stack completes
     outputs:
       exists: ${{ steps.check.outputs.exists }}
       computing_unit_id: ${{ steps.check.outputs.computing_unit_id }}
@@ -293,7 +292,8 @@ jobs:
     name: Register Computing Unit
     runs-on: ubuntu-latest
     needs: [deploy-stack, check-existing-unit]
-    if: ${{ needs.deploy-stack.result == 'success' && needs.check-existing-unit.outputs.exists == 'false' }}
+    # Skip if mode_1 already exists
+    if: ${{ needs.check-existing-unit.outputs.exists == 'false' }}
 
     steps:
       - name: Register Computing Unit with CloudMR Brain
