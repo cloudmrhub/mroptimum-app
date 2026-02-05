@@ -1,0 +1,177 @@
+name: Register Computing Unit (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack_name:
+        description: 'CloudFormation stack name to read StateMachine ARN from (optional)'
+        required: false
+        default: mroptimum-app-test
+      state_machine_arn:
+        description: 'Explicit State Machine ARN (optional, overrides stack_name)'
+        required: false
+        default: ''
+      app_name:
+        description: 'CloudApp name'
+        required: false
+        default: MR Optimum
+      mode:
+        description: 'Mode (mode_1 | mode_2)'
+        required: false
+        default: mode_1
+      provider:
+        description: 'Provider string (cloudmrhub | aws | user)'
+        required: false
+        default: cloudmrhub
+      is_default:
+        description: 'Make this computing unit default (true|false)'
+        required: false
+        default: true
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (assume role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        id: account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+
+      - name: Resolve State Machine ARN
+        id: resolve
+        run: |
+          if [ -n "${{ github.event.inputs.state_machine_arn }}" ] && [ "${{ github.event.inputs.state_machine_arn }}" != "" ]; then
+            echo "state_machine_arn=${{ github.event.inputs.state_machine_arn }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Try to read from stack outputs
+          STACK="${{ github.event.inputs.stack_name }}"
+          ARN=$(aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].Outputs[?contains(OutputKey, `CalculationStateMachineArn`) || contains(OutputKey, `StateMachine`) ].OutputValue' --output text 2>/dev/null | head -n1 || true)
+          if [ -z "$ARN" ]; then
+            echo "state_machine_arn=" >> $GITHUB_OUTPUT
+          else
+            echo "state_machine_arn=$ARN" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Obtain admin token
+        id: token
+        env:
+          CLOUDMR_API_URL: ${{ secrets.CLOUDMR_API_URL }}
+        run: |
+          set -euo pipefail
+          # Prefer static admin token secret
+          if [ -n "${{ secrets.CLOUDMR_ADMIN_TOKEN || '' }}" ]; then
+            echo "admin_token=${{ secrets.CLOUDMR_ADMIN_TOKEN }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Otherwise attempt login with email+password secrets
+          if [ -n "${{ secrets.CLOUDMR_ADMIN_EMAIL || '' }}" ] && [ -n "${{ secrets.CLOUDMR_ADMIN_PASSWORD || '' }}" ]; then
+            LOGIN=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" -H "Content-Type: application/json" -d "{\"email\":\"${{ secrets.CLOUDMR_ADMIN_EMAIL }}\",\"password\":\"${{ secrets.CLOUDMR_ADMIN_PASSWORD }}\"}")
+            TOKEN=$(echo "$LOGIN" | jq -r '.id_token // .idToken // .access_token // empty')
+            if [ -z "$TOKEN" ]; then
+              echo "Login failed, response follows:" >&2
+              echo "$LOGIN" | jq . >&2 || true
+              exit 1
+            fi
+            echo "admin_token=$TOKEN" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "No admin credentials available. Set CLOUDMR_ADMIN_TOKEN or CLOUDMR_ADMIN_EMAIL + CLOUDMR_ADMIN_PASSWORD as repository secrets." >&2
+          exit 1
+
+      - name: Register computing unit
+        id: register
+        env:
+          CLOUDMR_API_URL: ${{ secrets.CLOUDMR_API_URL }}
+          ADMIN_TOKEN: ${{ steps.token.outputs.admin_token }}
+          APP_NAME: ${{ github.event.inputs.app_name }}
+          MODE: ${{ github.event.inputs.mode }}
+          PROVIDER: ${{ github.event.inputs.provider }}
+          IS_DEFAULT: ${{ github.event.inputs.is_default }}
+          STATE_MACHINE_ARN: ${{ steps.resolve.outputs.state_machine_arn }}
+          AWS_ACCOUNT_ID: ${{ steps.account.outputs.account_id }}
+          DATA_BUCKET: ${{ secrets.DATA_BUCKET || '' }}
+          RESULTS_BUCKET: ${{ secrets.RESULTS_BUCKET || '' }}
+          FAILED_BUCKET: ${{ secrets.FAILED_BUCKET || '' }}
+        run: |
+          set -euo pipefail
+          echo "Registering computing unit for app=${APP_NAME}, mode=${MODE}"
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "Admin token missing" >&2
+            exit 1
+          fi
+
+          if [ -z "${STATE_MACHINE_ARN:-}" ]; then
+            echo "Warning: STATE_MACHINE_ARN empty. Proceeding without stateMachineArn (api may accept mode-based registration)." >&2
+          fi
+
+          # Build JSON payload using jq to avoid escaping issues
+          ISDEF=$(if [ "$IS_DEFAULT" = "true" ]; then echo true; else echo false; fi)
+          PAYLOAD=$(jq -n \
+            --arg appName "$APP_NAME" \
+            --arg mode "$MODE" \
+            --arg provider "$PROVIDER" \
+            --arg awsAccountId "$AWS_ACCOUNT_ID" \
+            --arg region "${{ env.AWS_REGION }}" \
+            --arg stateMachineArn "${STATE_MACHINE_ARN:-}" \
+            --arg dataBucket "${DATA_BUCKET:-}" \
+            --arg resultsBucket "${RESULTS_BUCKET:-}" \
+            --arg failedBucket "${FAILED_BUCKET:-}" \
+            --argjson isDefault "$ISDEF" \
+            '{
+              appName: $appName,
+              mode: $mode,
+              provider: $provider,
+              awsAccountId: $awsAccountId,
+              region: $region,
+              stateMachineArn: ($stateMachineArn // null),
+              dataBucket: ($dataBucket // null),
+              resultsBucket: ($resultsBucket // null),
+              failedBucket: ($failedBucket // null),
+              isDefault: $isDefault
+            }')
+
+          echo "Payload:"
+          echo "$PAYLOAD" | jq .
+          echo ""
+          RESP=$(curl -s -X POST "${CLOUDMR_API_URL}/api/computing-unit/register" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          echo "Response:"
+          echo "$RESP" | jq . || echo "$RESP"
+
+          # Fail the step if no computingUnitId returned
+          CU_ID=$(echo "$RESP" | jq -r '.computingUnitId // .computingUnitID // empty')
+          if [ -z "$CU_ID" ]; then
+            echo "Registration failed or no computingUnitId returned" >&2
+            exit 1
+          fi
+
+          echo "computing_unit_id=$CU_ID" >> $GITHUB_OUTPUT
+
+      - name: Print result
+        run: |
+          echo "✅ Registered computing unit id: ${{ steps.register.outputs.computing_unit_id }}"
+          echo "Finished."
