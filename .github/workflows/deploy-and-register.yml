@@ -221,7 +221,9 @@ jobs:
     name: Register Computing Unit
     runs-on: ubuntu-latest
     needs: [deploy-stack]
-    if: ${{ github.event.inputs.skip_register != 'true' && needs.deploy-stack.result == 'success' }}
+    # Run when deploy-stack succeeded. If the workflow was manually dispatched,
+    # allow skipping registration via the skip_register input.
+    if: ${{ needs.deploy-stack.result == 'success' && (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_register != 'true') }}
 
     steps:
       - name: Register Computing Unit with CloudMR Brain
