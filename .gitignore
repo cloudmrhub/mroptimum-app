@@ -261,3 +261,4 @@ exports.sh
 exports.sh
 exports.sh.*
 *.bak.*
+exports_user.sh

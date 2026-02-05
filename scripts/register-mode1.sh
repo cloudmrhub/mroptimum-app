@@ -6,6 +6,7 @@ set -euo pipefail
 # `AWS_ACCOUNT_ID`, `STATE_MACHINE_ARN`, `RESULTS_BUCKET`, `FAILED_BUCKET`, `DATA_BUCKET`.
 
 APP_NAME=${APP_NAME:-"MR Optimum"}
+COMPUTING_UNIT_MODE=${COMPUTING_UNIT_MODE:-"mode_1a"}
 CLOUDM_MR_BRAIN=${CLOUDM_MR_BRAIN:-}
 ADMIN_ID_TOKEN=${ADMIN_ID_TOKEN:-}
 AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID:-}
@@ -22,7 +23,8 @@ Usage: CLOUDM_MR_BRAIN=https://... ADMIN_ID_TOKEN=xxx \
   RESULTS_BUCKET=my-results FAILED_BUCKET=my-failed DATA_BUCKET=my-data \
   ./scripts/register-mode1.sh
 
-Optional envs: APP_NAME (default: "MR Optimum"), REGION (default: us-east-1)
+Optional envs: APP_NAME (default: "MR Optimum"), REGION (default: us-east-1),
+  COMPUTING_UNIT_MODE (default: "mode_1a")
 EOF
 }
 
@@ -68,25 +70,25 @@ else
   echo "Created CloudApp with appId: $APP_ID"
 fi
 
-echo "Checking for existing Mode1 computing unit for app '$APP_NAME'"
+echo "Checking for existing computing unit for app '$APP_NAME' with mode '$COMPUTING_UNIT_MODE'"
 # NOTE: These endpoints use /api/ prefix (fixed in cloudmr-brain template)
 cu_list=$(curl -s -G -H "Authorization: Bearer $ADMIN_ID_TOKEN_CLEAN" "$CLOUDM_MR_BRAIN/api/computing-unit/list" --data-urlencode "appName=$APP_NAME")
-existing_cu=$(echo "$cu_list" | jq -r --arg mode "mode1" --arg app "$APP_NAME" '.computingUnits[]? | select(.mode==$mode) | .computingUnitId' || true)
+existing_cu=$(echo "$cu_list" | jq -r --arg mode "$COMPUTING_UNIT_MODE" --arg app "$APP_NAME" '.computingUnits[]? | select(.mode==$mode) | .computingUnitId' || true)
 
 if [[ -n "$existing_cu" && "$existing_cu" != "null" ]]; then
-  echo "Found existing computing unit(s) with mode=mode1:"
-  echo "$cu_list" | jq -r --arg mode "mode1" '.computingUnits[]? | select(.mode==$mode)'
+  echo "Found existing computing unit(s) with mode=$COMPUTING_UNIT_MODE:"
+  echo "$cu_list" | jq -r --arg mode "$COMPUTING_UNIT_MODE" '.computingUnits[]? | select(.mode==$mode)'
   echo "No further action required."
   exit 0
 fi
 
-echo "No Mode1 computing unit found. Registering a new Mode1 computing unit..."
+echo "No computing unit found for mode '$COMPUTING_UNIT_MODE'. Registering a new one..."
 
 register_payload=$(cat <<JSON
 {
   "appName": "$APP_NAME",
-  "mode": "mode1",
-  "provider": "cloudmrhub",
+  "mode": "$COMPUTING_UNIT_MODE",
+  "provider": "aws",
   "awsAccountId": "$AWS_ACCOUNT_ID",
   "region": "$REGION",
   "stateMachineArn": "$STATE_MACHINE_ARN",

@@ -71,10 +71,15 @@ Resources:
         #     BucketName: !Ref DataBucketPName
         # - S3FullAccessPolicy:
         #     BucketName: !Ref ResultsBucketPName
+        # READ from DataBucket (download input data)
+        - S3ReadPolicy:
+            BucketName: !Ref DataBucketPName
+        # WRITE to ResultsBucket (upload results)
+        - S3WritePolicy:
+            BucketName: !Ref ResultsBucketPName
+        # WRITE to FailedBucket (upload failures)
         - S3FullAccessPolicy:
             BucketName: !Ref FailedBucketPName
-        # - S3FullAccessPolicy:
-        #     BucketName: mytestcmr
 
 
       Environment:
