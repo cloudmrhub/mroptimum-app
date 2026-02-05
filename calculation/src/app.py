@@ -139,6 +139,46 @@ def do_process(event, context=None, s3=None):
         if s3 is None:
             s3 = boto3.resource("s3")
 
+        # Log deployed image info (Lambda ImageUri or ECS/Fargate metadata) for debugging
+        def _log_deployed_image_info():
+            try:
+                # 1) If running as Lambda, query get_function for ImageUri (requires lambda:GetFunction)
+                fn = os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+                if fn:
+                    try:
+                        client = boto3.client("lambda")
+                        resp = client.get_function(FunctionName=fn)
+                        image_uri = resp.get("Code", {}).get("ImageUri")
+                        if image_uri:
+                            logger.write(f"Lambda image URI: {image_uri}")
+                        else:
+                            logger.write("Lambda is running but Code.ImageUri not present in function configuration")
+                    except Exception as e:
+                        logger.write(f"Could not get Lambda function config: {e}")
+
+                # 2) If running in ECS/Fargate, query metadata endpoint
+                meta_uri = os.environ.get("ECS_CONTAINER_METADATA_URI_V4") or os.environ.get("ECS_CONTAINER_METADATA_URI")
+                if meta_uri:
+                    try:
+                        # metadata endpoint returns JSON; attempt to extract container image
+                        r = requests.get(meta_uri, timeout=5)
+                        if r.status_code == 200:
+                            md = r.json()
+                            # v4/v3 metadata include Containers list or Image
+                            containers = md.get("Containers") or md.get("Container") or [md]
+                            for c in containers:
+                                img = c.get("Image") or c.get("ImageID")
+                                if img:
+                                    logger.write(f"ECS/Fargate container image: {img}")
+                        else:
+                            logger.write(f"ECS metadata request returned status {r.status_code}")
+                    except Exception as e:
+                        logger.write(f"Could not read ECS metadata endpoint: {e}")
+            except Exception as e:
+                logger.write(f"Error while detecting deployed image: {e}")
+
+        _log_deployed_image_info()
+
         # s3 implementation
         if "Records" in event and event["Records"] and "s3" in event["Records"][0]:
             # ----- S3 path: extract bucket/key, download JSON -----
@@ -173,7 +213,16 @@ def do_process(event, context=None, s3=None):
         pipelineid = info_json.get("pipeline", None)
         token = info_json.get("token", None)
         user_id = info_json.get("user_id", None)
-        info_json_output = info_json.get("output", {})
+        info_json_output = info_json.get("output")
+        if info_json_output is None:
+            # If top-level output is explicitly null, try task-level or default
+            info_json_output = (info_json.get("task") or {}).get("output") or {}
+            logger.write("Notice: top-level 'output' is null, using task-level 'output' or default {}")
+        elif not info_json_output:
+            # If top-level output missing/empty, try task-level
+            info_json_output = (info_json.get("task") or {}).get("output") or {}
+            if info_json_output:
+                logger.write("Notice: using task-level 'output' as top-level 'output' was missing or empty")
         logger.write(f"pipelineid {pipelineid}")
         logger.write(f"token {token}")
 
