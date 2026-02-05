@@ -328,7 +328,8 @@ jobs:
               -H "Content-Type: application/json" \
               -d "{\"email\": \"${ADMIN_EMAIL}\", \"password\": \"${ADMIN_PASSWORD}\"}")
             
-            ADMIN_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.idToken // empty')
+            # Accept multiple possible token field names returned by the API
+            ADMIN_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.id_token // .idToken // .IdToken // .access_token // .accessToken // empty')
             
             if [ -z "$ADMIN_TOKEN" ]; then
               echo "❌ Login failed. Response:"
@@ -359,7 +360,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{
               "appName": "${{ env.APP_NAME }}",
-              "mode": "mode1",
+              "mode": "mode_1",
               "provider": "cloudmrhub",
               "awsAccountId": "'"${AWS_ACCOUNT_ID}"'",
               "region": "${{ env.AWS_REGION }}",
