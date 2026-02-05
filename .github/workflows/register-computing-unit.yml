@@ -1,4 +1,4 @@
-name: Register Computing Unit (manual)
+name: Register Computing Unit (manual) 
 
 on:
   workflow_dispatch:
