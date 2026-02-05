@@ -221,7 +221,8 @@ jobs:
     name: Check Existing Mode 1 Unit
     runs-on: ubuntu-latest
     needs: [deploy-stack]
-    if: ${{ needs.deploy-stack.result == 'success' && (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_register != 'true') }}
+    # Always run check after deploy-stack succeeds; registration will skip if unit exists
+    if: ${{ needs.deploy-stack.result == 'success' }}
     outputs:
       exists: ${{ steps.check.outputs.exists }}
       computing_unit_id: ${{ steps.check.outputs.computing_unit_id }}
