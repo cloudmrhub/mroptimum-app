@@ -77,26 +77,42 @@ jobs:
           CLOUDMR_API_URL: ${{ secrets.CLOUDMR_API_URL }}
         run: |
           set -euo pipefail
-          # Prefer static admin token secret
+
+          # 1) If a static admin token secret is provided, test it first.
           if [ -n "${{ secrets.CLOUDMR_ADMIN_TOKEN || '' }}" ]; then
-            echo "admin_token=${{ secrets.CLOUDMR_ADMIN_TOKEN }}" >> $GITHUB_OUTPUT
-            exit 0
+            TOKEN="${{ secrets.CLOUDMR_ADMIN_TOKEN }}"
+            # Test token by hitting profile endpoint
+            RESP=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${TOKEN}" "${CLOUDMR_API_URL}/api/auth/profile" || true)
+            BODY=$(echo "$RESP" | sed '$d' || true)
+            CODE=$(echo "$RESP" | tail -n1 || true)
+
+            # If profile returns 200 and contains a user id, token is valid
+            if [ "$CODE" = "200" ] && [ -n "$(echo "$BODY" | jq -r '.userId // .sub // empty')" ]; then
+              echo "admin_token=${TOKEN}" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "Provided admin token invalid or expired (http_code=$CODE). Will attempt login with email+password if available." >&2
+            fi
           fi
 
-          # Otherwise attempt login with email+password secrets
+          # 2) Attempt login with admin email + password (preferred for CI)
           if [ -n "${{ secrets.CLOUDMR_ADMIN_EMAIL || '' }}" ] && [ -n "${{ secrets.CLOUDMR_ADMIN_PASSWORD || '' }}" ]; then
-            LOGIN=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" -H "Content-Type: application/json" -d "{\"email\":\"${{ secrets.CLOUDMR_ADMIN_EMAIL }}\",\"password\":\"${{ secrets.CLOUDMR_ADMIN_PASSWORD }}\"}")
-            TOKEN=$(echo "$LOGIN" | jq -r '.id_token // .idToken // .access_token // empty')
+            LOGIN=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\":\"${{ secrets.CLOUDMR_ADMIN_EMAIL }}\",\"password\":\"${{ secrets.CLOUDMR_ADMIN_PASSWORD }}\"}" || true)
+
+            TOKEN=$(echo "$LOGIN" | jq -r '.id_token // .idToken // .access_token // empty' || true)
             if [ -z "$TOKEN" ]; then
               echo "Login failed, response follows:" >&2
               echo "$LOGIN" | jq . >&2 || true
               exit 1
             fi
+
             echo "admin_token=$TOKEN" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "No admin credentials available. Set CLOUDMR_ADMIN_TOKEN or CLOUDMR_ADMIN_EMAIL + CLOUDMR_ADMIN_PASSWORD as repository secrets." >&2
+          echo "No valid admin credentials available. Set CLOUDMR_ADMIN_TOKEN (fresh) or CLOUDMR_ADMIN_EMAIL + CLOUDMR_ADMIN_PASSWORD as repository secrets." >&2
           exit 1
 
       - name: Register computing unit
