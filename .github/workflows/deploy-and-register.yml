@@ -235,6 +235,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "CLOUDMR_API_URL: $CLOUDMR_API_URL"
+
           # 1) If a static admin token secret is provided, test it first.
           if [ -n "${{ secrets.CLOUDMR_ADMIN_TOKEN || '' }}" ]; then
             TOKEN="${{ secrets.CLOUDMR_ADMIN_TOKEN }}"
@@ -252,6 +254,7 @@ jobs:
           # 2) Attempt login with admin email + password
           if [ -n "${{ secrets.CLOUDMR_ADMIN_EMAIL || '' }}" ] && [ -n "${{ secrets.CLOUDMR_ADMIN_PASSWORD || '' }}" ]; then
             LOGIN=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" -H "Content-Type: application/json" -d "{\"email\":\"${{ secrets.CLOUDMR_ADMIN_EMAIL }}\",\"password\":\"${{ secrets.CLOUDMR_ADMIN_PASSWORD }}\"}" || true)
+            echo "LOGIN response: $LOGIN"
             TOKEN=$(echo "$LOGIN" | jq -r '.id_token // .idToken // .access_token // empty' || true)
             if [ -z "$TOKEN" ]; then
               echo "Login failed" >&2
