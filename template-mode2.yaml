@@ -1,0 +1,168 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  MR Optimum Backend Compute Infrastructure — Mode 2 (User-Owned)
+  Deploys the same calculation stack as Mode 1 in the user's AWS account.
+  S3 buckets are configurable parameters (default to Mode 1 / CloudMR Brain buckets).
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "CloudMR Brain Integration"
+        Parameters:
+          - CortexHost
+      - Label:
+          default: "Docker Images"
+        Parameters:
+          - LambdaImageUri
+          - FargateImageUri
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - SubnetId1
+          - SubnetId2
+          - SecurityGroupIds
+      - Label:
+          default: "ECS Configuration"
+        Parameters:
+          - ECSClusterName
+      - Label:
+          default: "S3 Buckets"
+        Parameters:
+          - DataBucketName
+          - ResultsBucketName
+          - FailedBucketName
+      - Label:
+          default: "Deployment"
+        Parameters:
+          - StageName
+
+Parameters:
+  CortexHost:
+    Type: String
+    Description: "CloudMR Brain API hostname (e.g., brain.aws.cloudmrhub.com)"
+    Default: 'brain.aws.cloudmrhub.com'
+
+  DataBucketName:
+    Type: String
+    Description: "S3 bucket for input data (defaults to Mode 1 / CloudMR Brain bucket)"
+    Default: 'cloudmr-data-cloudmrhub-brain-us-east-1'
+
+  ResultsBucketName:
+    Type: String
+    Description: "S3 bucket for results (defaults to Mode 1 / CloudMR Brain bucket)"
+    Default: 'cloudmr-results-cloudmrhub-brain-us-east-1'
+
+  FailedBucketName:
+    Type: String
+    Description: "S3 bucket for failed jobs (defaults to Mode 1 / CloudMR Brain bucket)"
+    Default: 'cloudmr-failed-cloudmrhub-brain-us-east-1'
+
+  FargateImageUri:
+    Type: String
+    Description: "ECR URI for the Fargate image (from CloudMR's account)"
+
+  LambdaImageUri:
+    Type: String
+    Description: "ECR URI for the Lambda image (from CloudMR's account)"
+
+  ECSClusterName:
+    Type: String
+    Default: mroptimum-mode2-cluster
+    Description: "Name of the ECS cluster"
+
+  SubnetId1:
+    Type: AWS::EC2::Subnet::Id
+    Description: "First subnet (must have internet access for ECR pulls)"
+
+  SubnetId2:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Second subnet (for high availability)"
+
+  SecurityGroupIds:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "Security Group ID for ECS tasks"
+
+  StageName:
+    Type: String
+    Default: Prod
+    AllowedValues: [Prod, Dev, Test]
+    Description: "Deployment stage"
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        Application: MR Optimum
+        Host: !Ref CortexHost
+        CloudMRApiUrl: !Sub "https://${CortexHost}/api"
+        PipelineScheduler: !Sub "https://${CortexHost}/api/pipeline/request"
+        PipelineCompleted: !Sub "https://${CortexHost}/api/pipeline/completed"
+        PipelineFailed: !Sub "https://${CortexHost}/api/pipeline/failed"
+        deleteDataAPI: !Sub "https://${CortexHost}/api/data/delete"
+        updateDataAPI: !Sub "https://${CortexHost}/api/data/update"
+        PipelineDeleteAPI: !Sub "https://${CortexHost}/api/pipeline/delete"
+        EXECUTION_MODE: "mode2"
+
+Resources:
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Calculation App — same nested stack as Mode 1
+  # Bucket names come from Parameters (default to Mode 1 / CloudMR Brain buckets)
+  # ═══════════════════════════════════════════════════════════════════
+
+  CalculationApp:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: calculation/template-mode2.yaml
+      Parameters:
+        StageName:           !Ref StageName
+        DataBucketPName:     !Ref DataBucketName
+        ResultsBucketPName:  !Ref ResultsBucketName
+        FailedBucketPName:   !Ref FailedBucketName
+        FargateImageUri:     !Ref FargateImageUri
+        ECSClusterName:      !Ref ECSClusterName
+        SubnetId1:           !Ref SubnetId1
+        SubnetId2:           !Ref SubnetId2
+        SecurityGroupIds:    !Ref SecurityGroupIds
+        LambdaImageUri:      !Ref LambdaImageUri
+
+Outputs:
+  CalculationStateMachineArn:
+    Description: "ARN of the State Machine for job orchestration"
+    Value: !GetAtt CalculationApp.Outputs.StateMachineArn
+    Export:
+      Name: !Sub "${AWS::StackName}-StateMachineArn"
+
+  RunJobLambdaArn:
+    Description: "ARN of the RunJob Lambda function"
+    Value: !GetAtt CalculationApp.Outputs.RunJobLambdaArn
+    Export:
+      Name: !Sub "${AWS::StackName}-RunJobLambdaArn"
+
+  ECSClusterNameOutput:
+    Description: "Name of the ECS cluster"
+    Value: !GetAtt CalculationApp.Outputs.ECSClusterName
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSClusterName"
+
+  DataBucketName:
+    Description: "Data S3 bucket"
+    Value: !Ref DataBucketName
+
+  ResultsBucketName:
+    Description: "Results S3 bucket"
+    Value: !Ref ResultsBucketName
+
+  FailedBucketName:
+    Description: "Failed S3 bucket"
+    Value: !Ref FailedBucketName
+
+  Mode:
+    Description: "Execution mode (mode2 = user-owned)"
+    Value: "mode2"
