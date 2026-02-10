@@ -108,7 +108,7 @@ export CLOUDM_MR_BRAIN='https://f41j488v7j.execute-api.us-east-1.amazonaws.com/P
 # 2. Get an admin token (login to CloudMR Brain)
 export ID_TOKEN=$(curl -s -X POST "$CLOUDM_MR_BRAIN/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"email": "your@email.com", "password": "yourpassword"}' | jq -r '.idToken')
+  -d '{"email": "your@email.com", "password": "yourpassword"}' | jq -r '.id_token // .idToken')
 
 # 3. Run the all-in-one script
 ./scripts/deploy-and-register-mode1.sh
@@ -450,7 +450,7 @@ aws sso login --profile nyu
 ```bash
 export ID_TOKEN=$(curl -s -X POST "$CLOUDM_MR_BRAIN/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"email": "your@email.com", "password": "yourpassword"}' | jq -r '.idToken')
+  -d '{"email": "your@email.com", "password": "yourpassword"}' | jq -r '.id_token // .idToken')
 export ADMIN_ID_TOKEN="$ID_TOKEN"
 ```
 
