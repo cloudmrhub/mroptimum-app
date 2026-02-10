@@ -313,27 +313,85 @@ jobs:
           FAILED_BUCKET: ${{ needs.deploy-stack.outputs.failed_bucket }}
         run: |
           set -euo pipefail
-          echo "Registering Mode 1 computing unit with alias, logo, and logoPosition..."
-          curl -s -X POST "$CLOUDMR_API_URL/api/computing-unit/register" \
-            -H "Authorization: Bearer $ADMIN_TOKEN" \
+          
+          echo "╔═══════════════════════════════════════════════════════════════╗"
+          echo "║   Registering Computing Unit with CloudMR Brain               ║"
+          echo "╚═══════════════════════════════════════════════════════════════╝"
+          echo ""
+          
+          if [ -z "$CLOUDMR_API_URL" ]; then
+            echo "❌ CLOUDMR_API_URL secret is not set"
+            exit 1
+          fi
+          
+          # Get token
+          if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
+            echo "🔑 Logging in to get fresh admin token..."
+            LOGIN_RESP=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" \
+              -H "Content-Type: application/json" \
+              -d "{\"email\": \"${ADMIN_EMAIL}\", \"password\": \"${ADMIN_PASSWORD}\"}")
+            
+            # Accept multiple possible token field names returned by the API
+            ADMIN_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.id_token // .idToken // .IdToken // .access_token // .accessToken // empty')
+            
+            if [ -z "$ADMIN_TOKEN" ]; then
+              echo "❌ Login failed. Response:"
+              echo "$LOGIN_RESP" | jq .
+              exit 1
+            fi
+            echo "✓ Obtained fresh token"
+          elif [ -n "${ADMIN_TOKEN_SECRET:-}" ]; then
+            echo "🔑 Using pre-configured CLOUDMR_ADMIN_TOKEN secret"
+            ADMIN_TOKEN="$ADMIN_TOKEN_SECRET"
+          else
+            echo "❌ No authentication credentials available"
+            exit 1
+          fi
+          
+          if [ -z "$STATE_MACHINE_ARN" ]; then
+            echo "❌ State Machine ARN not available"
+            exit 1
+          fi
+          
+          echo "API URL:           ${CLOUDMR_API_URL}"
+          echo "State Machine ARN: ${STATE_MACHINE_ARN}"
+          echo ""
+          
+          # Register computing unit
+          REGISTER_RESP=$(curl -s -X POST "${CLOUDMR_API_URL}/api/computing-unit/register" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             -H "Content-Type: application/json" \
             -d '{
-              "appName": "'"$APP_NAME"'",
+              "appName": "${{ env.APP_NAME }}",
               "mode": "mode_1",
               "provider": "cloudmrhub",
-              "awsAccountId": "'"$AWS_ACCOUNT_ID"'",
-              "region": "'"${{ env.AWS_REGION }}"'",
+              "awsAccountId": "'"${AWS_ACCOUNT_ID}"'",
+              "region": "${{ env.AWS_REGION }}",
               "stateMachineArn": "'"${STATE_MACHINE_ARN}"'",
+              "dataBucket": "'"${DATA_BUCKET}"'",
               "resultsBucket": "'"${RESULTS_BUCKET}"'",
               "failedBucket": "'"${FAILED_BUCKET}"'",
-              "dataBucket": "'"${DATA_BUCKET}"'",
               "isDefault": true,
               "alias": "Mode 1",
               "logo": "https://cloudmrbuckets.s3.us-east-1.amazonaws.com/mro/mroptimum_logo.png",
               "logoPosition": "top"
-            }' | tee /tmp/mode1-register-response.json
-          echo "Registration response:"
-          cat /tmp/mode1-register-response.json | jq . || cat /tmp/mode1-register-response.json
+            }')
+          
+          echo "$REGISTER_RESP" | jq .
+          
+          CU_ID=$(echo "$REGISTER_RESP" | jq -r '.computingUnitId // empty')
+          
+          if [ -n "$CU_ID" ]; then
+            echo ""
+            echo "╔═══════════════════════════════════════════════════════════════╗"
+            echo "║   ✓ Registration Successful                                   ║"
+            echo "╚═══════════════════════════════════════════════════════════════╝"
+            echo "Computing Unit ID: ${CU_ID}"
+          else
+            echo ""
+            echo "❌ Registration failed"
+            exit 1
+          fi
 
   # ==========================================================================
   # JOB 4: Summary
