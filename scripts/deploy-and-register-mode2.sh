@@ -458,16 +458,6 @@ log_success "Wrote $EXPORTS_FILE"
 # ============================================================================
 log_step "Step 7: Register Mode 2 computing unit"
 
-REG_PAYLOAD=$(jq -n \
-    --arg appName "$APP_NAME" \
-    --arg mode "mode_2" \
-    --arg provider "user" \
-    --arg awsAccountId "$USER_AWS_ACCOUNT_ID" \
-    --arg region "$AWS_REGION" \
-    --arg stateMachineArn "$STATE_MACHINE_ARN" \
-    --arg resultsBucket "$RESULTS_BUCKET" \
-    --arg failedBucket "$FAILED_BUCKET" \
-    --arg dataBucket "$DATA_BUCKET" \
 if [[ -z "$ALIAS" ]]; then
     ALIAS="$ALIAS_DEFAULT"
 fi
