@@ -59,7 +59,8 @@ STACK_NAME="${STACK_NAME:-mroptimum-mode2}"
 CLOUDMR_API_URL="${CLOUDMR_API_URL:-${CLOUDM_MR_BRAIN:-https://brain.aws.cloudmrhub.com/Prod}}"
 APP_NAME="${APP_NAME:-MR Optimum}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-ALIAS="${ALIAS:-Mode 2}"
+ALIAS_DEFAULT="Mode 2"
+ALIAS="${ALIAS:-}"
 
 # CloudMR's ECR account (where the Docker images live)
 ECR_ACCOUNT="${ECR_ACCOUNT:-469266894233}"
@@ -88,7 +89,8 @@ while [[ $# -gt 0 ]]; do
         --data-bucket)    DATA_BUCKET="$2";     shift 2 ;;
         --results-bucket) RESULTS_BUCKET="$2";  shift 2 ;;
         --failed-bucket)  FAILED_BUCKET="$2";   shift 2 ;;
-        --alias)        ALIAS="$2";            shift 2 ;;
+        --alias)
+            ALIAS="$2"; shift 2 ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -466,7 +468,21 @@ REG_PAYLOAD=$(jq -n \
     --arg resultsBucket "$RESULTS_BUCKET" \
     --arg failedBucket "$FAILED_BUCKET" \
     --arg dataBucket "$DATA_BUCKET" \
-    --arg alias "Mode 2" \
+if [[ -z "$ALIAS" ]]; then
+    ALIAS="$ALIAS_DEFAULT"
+fi
+
+REG_PAYLOAD=$(jq -n \
+    --arg appName "$APP_NAME" \
+    --arg mode "mode_2" \
+    --arg provider "user" \
+    --arg awsAccountId "$USER_AWS_ACCOUNT_ID" \
+    --arg region "$AWS_REGION" \
+    --arg stateMachineArn "$STATE_MACHINE_ARN" \
+    --arg resultsBucket "$RESULTS_BUCKET" \
+    --arg failedBucket "$FAILED_BUCKET" \
+    --arg dataBucket "$DATA_BUCKET" \
+    --arg alias "$ALIAS" \
     '{
         appName: $appName,
         mode: $mode,
