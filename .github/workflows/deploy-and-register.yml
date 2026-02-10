@@ -373,7 +373,7 @@ jobs:
               "failedBucket": "'"${FAILED_BUCKET}"'",
               "isDefault": true,
               "alias": "Mode 1",
-              "logo": "https://cloudmrbuckets.s3.us-east-1.amazonaws.com/mro/mroptimum_logo.png",
+              "logoUrl": "https://cloudmrbuckets.s3.us-east-1.amazonaws.com/mro/mroptimum_logo.png",
               "logoPosition": "top"
             }')
           
