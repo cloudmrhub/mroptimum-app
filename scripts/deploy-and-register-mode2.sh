@@ -82,6 +82,8 @@ while [[ $# -gt 0 ]]; do
         --region)       AWS_REGION="$2";       shift 2 ;;
         --stack-name)   STACK_NAME="$2";       shift 2 ;;
         --api-url)      CLOUDMR_API_URL="$2";  shift 2 ;;
+        --cloudmr-role-arn) CLOUDMR_ROLE_ARN="$2"; shift 2 ;;
+        --external-id)      EXTERNAL_ID="$2";      shift 2 ;;
         --ecr-account)  ECR_ACCOUNT="$2";      shift 2 ;;
         --ecr-region)   ECR_REGION="$2";       shift 2 ;;
         --image-tag)    IMAGE_TAG="$2";        shift 2 ;;
@@ -91,6 +93,8 @@ while [[ $# -gt 0 ]]; do
         --failed-bucket)  FAILED_BUCKET="$2";   shift 2 ;;
         --alias)
             ALIAS="$2"; shift 2 ;;
+        --s3-bucket)
+            S3_BUCKET="$2"; shift 2 ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -110,12 +114,20 @@ while [[ $# -gt 0 ]]; do
             echo "  --data-bucket NAME      S3 data bucket          (default: cloudmr-data-cloudmrhub-brain-us-east-1)"
             echo "  --results-bucket NAME   S3 results bucket       (default: cloudmr-results-cloudmrhub-brain-us-east-1)"
             echo "  --failed-bucket NAME    S3 failed bucket        (default: cloudmr-failed-cloudmrhub-brain-us-east-1)"
+            echo "  --s3-bucket NAME        S3 bucket to stage SAM artifacts (optional - will be created if missing)"
+            echo "  --cloudmr-role-arn ARN Optional: CloudMR's QueueJob role ARN that will assume the cross-account role"
+            echo "  --external-id ID       Optional: ExternalId that cloudmr must provide when assuming the role"
             echo "  --alias ALIAS           Alias for computing unit (default: Mode 2)"
             exit 0
             ;;
         *) log_error "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+    # Optional explicit S3 bucket to stage artifacts (if not provided, SAM uses a managed bucket)
+    S3_BUCKET="${S3_BUCKET:-}"
+    CLOUDMR_ROLE_ARN="${CLOUDMR_ROLE_ARN:-}"
+    EXTERNAL_ID="${EXTERNAL_ID:-}"
 
 # ============================================================================
 # Build AWS CLI profile argument
@@ -324,6 +336,22 @@ CLOUDMR_HOST=$(echo "$CLOUDMR_API_URL" | sed 's|https\?://||' | sed 's|/.*||')
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/.."
 
+# If no explicit S3 bucket provided, generate a deterministic, unique name using the user's email
+if [[ -z "${S3_BUCKET:-}" ]]; then
+    # Sanitize email to a bucket-friendly token: lowercase, replace @ and invalid chars with '-'
+    EMAIL_TOKEN=$(echo "${CLOUDMR_EMAIL,,}" | sed 's/@/-/g; s/[^a-z0-9-]/-/g; s/-\{2,\}/-/g; s/^-//; s/-$//')
+    SUFFIX="$(date +%s)-$(printf '%04x' $((RANDOM%65536)))"
+    S3_BUCKET="mroptimum-${EMAIL_TOKEN}-${SUFFIX}"
+    # Trim to 63 chars (S3 limit)
+    if [[ ${#S3_BUCKET} -gt 63 ]]; then
+        S3_BUCKET=${S3_BUCKET:0:63}
+        S3_BUCKET=$(echo "$S3_BUCKET" | sed 's/-$//')
+    fi
+    GENERATED_S3_BUCKET=1
+else
+    GENERATED_S3_BUCKET=0
+fi
+
 # Summary before deploying
 echo ""
 echo -e "  Stack Name:     ${GREEN}$STACK_NAME${NC}"
@@ -340,6 +368,16 @@ echo -e "  CloudMR User:   ${GREEN}$CLOUDMR_EMAIL${NC}"
 echo -e "  Data Bucket:    ${GREEN}$DATA_BUCKET${NC}"
 echo -e "  Results Bucket: ${GREEN}$RESULTS_BUCKET${NC}"
 echo -e "  Failed Bucket:  ${GREEN}$FAILED_BUCKET${NC}"
+echo -e "  S3 Bucket:      ${GREEN}$S3_BUCKET${NC}"
+if [[ "$GENERATED_S3_BUCKET" -eq 1 ]]; then
+    echo -e "  (auto-generated from email: ${CLOUDMR_EMAIL})"
+fi
+if [[ -n "$CLOUDMR_ROLE_ARN" ]]; then
+    echo -e "  CloudMR Role Arn: ${GREEN}$CLOUDMR_ROLE_ARN${NC}"
+fi
+if [[ -n "$EXTERNAL_ID" ]]; then
+    echo -e "  ExternalId: ${GREEN}$EXTERNAL_ID${NC}"
+fi
 echo -e "  Mode:           ${GREEN}mode_2 (user-owned)${NC}"
 echo ""
 
@@ -364,23 +402,64 @@ fi
 
 log_info "Using Mode 2 template: $TEMPLATE_FILE"
 
+# If an explicit S3 bucket was provided, ensure it exists and is usable by SAM
+S3_DEPLOY_ARGS=""
+if [[ -n "$S3_BUCKET" ]]; then
+    log_info "Using explicit S3 bucket for artifact staging: $S3_BUCKET"
+
+    # Check if bucket exists
+    if ! aws s3api head-bucket --bucket "$S3_BUCKET" $AWS_ARGS --region "$AWS_REGION" 2>/dev/null; then
+        log_warn "S3 bucket '$S3_BUCKET' does not exist. Attempting to create it..."
+        if [[ "$AWS_REGION" == "us-east-1" ]]; then
+            aws s3api create-bucket --bucket "$S3_BUCKET" $AWS_ARGS --region "$AWS_REGION"
+        else
+            aws s3api create-bucket --bucket "$S3_BUCKET" --create-bucket-configuration LocationConstraint="$AWS_REGION" $AWS_ARGS --region "$AWS_REGION"
+        fi
+
+        # Re-check
+        if ! aws s3api head-bucket --bucket "$S3_BUCKET" $AWS_ARGS --region "$AWS_REGION" 2>/dev/null; then
+            log_error "Failed to create or access S3 bucket '$S3_BUCKET'. Check permissions and try again."
+            exit 1
+        fi
+        log_success "Created S3 bucket: $S3_BUCKET"
+    else
+        log_success "S3 bucket exists: $S3_BUCKET"
+    fi
+
+    S3_DEPLOY_ARGS="--s3-bucket $S3_BUCKET"
+    # When providing an explicit s3 bucket, ensure SAM does not attempt to auto-resolve S3
+    S3_RESOLVE_FLAG="--no-resolve-s3"
+fi
+
+# Build SAM parameter overrides and only include optional params when provided
+PARAM_OVERRIDES=(
+    "LambdaImageUri=$LAMBDA_IMAGE_URI"
+    "FargateImageUri=$FARGATE_IMAGE_URI"
+    "CortexHost=$CLOUDMR_HOST"
+    "ECSClusterName=${STACK_NAME}-cluster"
+    "SubnetId1=$SUBNET_ID_1"
+    "SubnetId2=$SUBNET_ID_2"
+    "SecurityGroupIds=$SG_ID"
+    "DataBucketName=$DATA_BUCKET"
+    "ResultsBucketName=$RESULTS_BUCKET"
+    "FailedBucketName=$FAILED_BUCKET"
+    "StageName=Prod"
+)
+if [[ -n "$CLOUDMR_ROLE_ARN" ]]; then
+    PARAM_OVERRIDES+=("CloudMRQueueJobRoleArn=$CLOUDMR_ROLE_ARN")
+fi
+if [[ -n "$EXTERNAL_ID" ]]; then
+    PARAM_OVERRIDES+=("ExternalId=$EXTERNAL_ID")
+fi
+PARAM_OVERRIDES_STR="${PARAM_OVERRIDES[*]}"
+
 sam deploy \
     --template-file "$TEMPLATE_FILE" \
     $AWS_ARGS \
     --region "$AWS_REGION" \
+    $S3_DEPLOY_ARGS $S3_RESOLVE_FLAG \
     --stack-name "$STACK_NAME" \
-    --parameter-overrides \
-        LambdaImageUri="$LAMBDA_IMAGE_URI" \
-        FargateImageUri="$FARGATE_IMAGE_URI" \
-        CortexHost="$CLOUDMR_HOST" \
-        ECSClusterName="${STACK_NAME}-cluster" \
-        SubnetId1="$SUBNET_ID_1" \
-        SubnetId2="$SUBNET_ID_2" \
-        SecurityGroupIds="$SG_ID" \
-        DataBucketName="$DATA_BUCKET" \
-        ResultsBucketName="$RESULTS_BUCKET" \
-        FailedBucketName="$FAILED_BUCKET" \
-        StageName="Prod" \
+    --parameter-overrides $PARAM_OVERRIDES_STR \
     --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM \
     --no-fail-on-empty-changeset \
     --no-confirm-changeset
@@ -431,6 +510,19 @@ if [[ -z "$STATE_MACHINE_ARN" || "$STATE_MACHINE_ARN" == "None" ]]; then
 fi
 log_success "State Machine ARN: $STATE_MACHINE_ARN"
 
+# Try to get the cross-account role ARN (optional)
+CROSS_ACCOUNT_ROLE_ARN=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    $AWS_ARGS --region "$AWS_REGION" \
+    --query 'Stacks[0].Outputs[?OutputKey==`CloudMRCrossAccountRoleArn`].OutputValue' --output text 2>/dev/null || echo "")
+
+if [[ -n "$CROSS_ACCOUNT_ROLE_ARN" && "$CROSS_ACCOUNT_ROLE_ARN" != "None" ]]; then
+    log_success "Cross-account role ARN: $CROSS_ACCOUNT_ROLE_ARN"
+else
+    log_info "No cross-account role ARN found in stack outputs (this is optional)."
+    CROSS_ACCOUNT_ROLE_ARN=""
+fi
+
 # Bucket names are known from our parameters (no need to query stack outputs)
 # They were already set from defaults or CLI flags
 log_success "Data Bucket:    $DATA_BUCKET"
@@ -450,6 +542,8 @@ export MODE2_FAILED_BUCKET="$FAILED_BUCKET"
 export MODE2_DATA_BUCKET="$DATA_BUCKET"
 export MODE2_STACK_NAME="$STACK_NAME"
 export MODE2_REGION="$AWS_REGION"
+export MODE2_CROSS_ACCOUNT_ROLE_ARN="$CROSS_ACCOUNT_ROLE_ARN"
+export CROSS_ACCOUNT_ROLE_ARN="$CROSS_ACCOUNT_ROLE_ARN"
 EOF
 log_success "Wrote $EXPORTS_FILE"
 
@@ -473,6 +567,8 @@ REG_PAYLOAD=$(jq -n \
     --arg failedBucket "$FAILED_BUCKET" \
     --arg dataBucket "$DATA_BUCKET" \
     --arg alias "$ALIAS" \
+    --arg crossAccountRoleArn "$CROSS_ACCOUNT_ROLE_ARN" \
+    --arg externalId "$EXTERNAL_ID" \
     '{
         appName: $appName,
         mode: $mode,
@@ -484,6 +580,8 @@ REG_PAYLOAD=$(jq -n \
         failedBucket: $failedBucket,
         dataBucket: $dataBucket,
         alias: $alias,
+        crossAccountRoleArn: $crossAccountRoleArn,
+        externalId: ($externalId // ""),
         isDefault: false
     }')
 
@@ -504,6 +602,29 @@ COMPUTING_UNIT_ID=$(echo "$REG_RESPONSE" | jq -r '.computingUnitId // empty')
 
 if [[ -z "$COMPUTING_UNIT_ID" ]]; then
     log_error "Registration failed. See response above."
+    # Be more robust in detecting the DynamoDB UpdateExpression failure which mentions overlapping document paths
+    ERR_MSG=$(echo "$REG_RESPONSE" | jq -r '.error // .message // empty')
+    log_info "Server error: $ERR_MSG"
+    if [[ "$ERR_MSG" =~ "ValidationException" ]] || [[ "$ERR_MSG" =~ "Invalid UpdateExpression" ]] || [[ "$ERR_MSG" =~ "Two document" ]] || [[ "$ERR_MSG" =~ "crossAccountRoleArn" ]] || [[ "$ERR_MSG" =~ "crossAccountRoleVerified" ]]; then
+        log_warn "Detected server-side DynamoDB update error related to crossAccountRoleArn. Retrying registration without cross-account fields..."
+        REG_PAYLOAD_NO_ROLE=$(jq 'del(.crossAccountRoleArn) | del(.externalId)' <<< "$REG_PAYLOAD")
+        echo "Retry payload:"; echo "$REG_PAYLOAD_NO_ROLE" | jq .
+        REG_RESPONSE_2=$(curl -s -X POST "${CLOUDMR_API_URL}/api/computing-unit/register" \
+            -H "Authorization: Bearer ${ID_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$REG_PAYLOAD_NO_ROLE")
+        echo "Retry response:"; echo "$REG_RESPONSE_2" | jq . 2>/dev/null || echo "$REG_RESPONSE_2"
+        COMPUTING_UNIT_ID=$(echo "$REG_RESPONSE_2" | jq -r '.computingUnitId // empty')
+        if [[ -n "$COMPUTING_UNIT_ID" ]]; then
+            log_success "Registration succeeded without crossAccountRoleArn (role not attached)."
+            log_info "The server appears to reject adding the cross-account role due to a DynamoDB UpdateExpression bug."
+            log_info "You can attach the cross-account role later by running:"
+            log_info "  MODE=mode_2 CROSS_ACCOUNT_ROLE_ARN=$CROSS_ACCOUNT_ROLE_ARN EXTERNAL_ID=$EXTERNAL_ID ./scripts/register-computing-unit.sh"
+            log_info "If attaching the role fails similarly, please contact CloudMR support to fix the server-side UpdateExpression (overlapping document paths)."
+        else
+            log_error "Retry registration also failed. See responses above."
+        fi
+    fi
     log_info "You can retry registration manually:"
     log_info "  MODE=mode_2 STACK_NAME=$STACK_NAME CLOUDMR_EMAIL=$CLOUDMR_EMAIL CLOUDMR_API_URL=$CLOUDMR_API_URL ./scripts/register-computing-unit.sh"
     exit 1

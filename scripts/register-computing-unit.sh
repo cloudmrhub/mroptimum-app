@@ -26,6 +26,9 @@ MODE="${MODE:-mode_1}"
 AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-}"
 REGION="${REGION:-us-east-1}"
 STATE_MACHINE_ARN="${STATE_MACHINE_ARN:-}"
+# Optional cross-account role and external id for mode_2
+CROSS_ACCOUNT_ROLE_ARN="${CROSS_ACCOUNT_ROLE_ARN:-}"
+EXTERNAL_ID="${EXTERNAL_ID:-}"
 # Accept either CLOUDMR_API_URL (new) or CLOUDM_MR_BRAIN (existing exports.sh)
 CLOUDMR_API_URL="${CLOUDMR_API_URL:-${CLOUDM_MR_BRAIN:-}}"
 CLOUDMR_EMAIL="${CLOUDMR_EMAIL:-}"
@@ -248,6 +251,8 @@ register_computing_unit() {
             --arg failedBucket "$FAILED_BUCKET" \
             --arg dataBucket "$DATA_BUCKET" \
             --arg alias "$alias_payload" \
+            --arg crossAccountRoleArn "$CROSS_ACCOUNT_ROLE_ARN" \
+            --arg externalId "$EXTERNAL_ID" \
             '{
                 appName: $appName,
                 mode: $mode,
@@ -259,7 +264,9 @@ register_computing_unit() {
                 failedBucket: $failedBucket,
                 dataBucket: $dataBucket,
                 isDefault: false,
-                alias: $alias
+                alias: $alias,
+                crossAccountRoleArn: $crossAccountRoleArn,
+                externalId: ($externalId // "")
             }')
     fi
     

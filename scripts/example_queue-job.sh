@@ -23,7 +23,6 @@ NC='\033[0m'
 CLOUDMR_API_URL="${CLOUDMR_API_URL:-https://f41j488v7j.execute-api.us-east-1.amazonaws.com/Prod}"
 CLOUDAPP_NAME="${CLOUDAPP_NAME:-MR Optimum}"
 COMPUTING_UNIT_MODE="${COMPUTING_UNIT_MODE:-}"
-PAYLOAD_FILE="${PAYLOAD_FILE:-${1:-}}" # Optional: path to a JSON file to use as the full request payload
 
 log_info()    { echo -e "${BLUE}[INFO]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
@@ -101,60 +100,46 @@ find_cloudapp() {
 queue_job() {
     log_info "Step 3: Queueing job (pipeline will be created automatically)..."
     
-    # If PAYLOAD_FILE is provided (env var or first arg), use it directly
+    local job_alias="Job-$(date +%Y%m%d-%H%M%S)"
+    
+    # Build the job payload - uses cloudapp_name instead of cloudapp_id
     local task_payload
-    if [[ -n "${PAYLOAD_FILE:-}" ]]; then
-        log_info "Using payload file: $PAYLOAD_FILE"
-        if [[ ! -f "$PAYLOAD_FILE" ]]; then
-            log_error "PAYLOAD_FILE not found: $PAYLOAD_FILE"
-            exit 1
-        fi
-        if ! jq -e . "$PAYLOAD_FILE" >/dev/null 2>&1; then
-            log_error "PAYLOAD_FILE is not valid JSON: $PAYLOAD_FILE"
-            exit 1
-        fi
-        task_payload=$(cat "$PAYLOAD_FILE")
+    if [[ -n "$COMPUTING_UNIT_MODE" ]]; then
+        task_payload=$(jq -n \
+            --arg cloudapp_name "$CLOUDAPP_NAME" \
+            --arg alias "$job_alias" \
+            --arg computing_unit_mode "$COMPUTING_UNIT_MODE" \
+            --arg timestamp "$(date -Iseconds)" \
+            '{
+                cloudapp_name: $cloudapp_name,
+                computing_unit_mode: $computing_unit_mode,
+                alias: $alias,
+                task: {
+                    type: "snr_calculation",
+                    parameters: {
+                        test_mode: true,
+                        timestamp: $timestamp,
+                        echo: "Hello from queue-job.sh"
+                    }
+                }
+            }')
     else
-        local job_alias="Job-$(date +%Y%m%d-%H%M%S)"
-        
-        # Build the job payload - uses cloudapp_name instead of cloudapp_id
-        if [[ -n "$COMPUTING_UNIT_MODE" ]]; then
-            task_payload=$(jq -n \
-                --arg cloudapp_name "$CLOUDAPP_NAME" \
-                --arg alias "$job_alias" \
-                --arg computing_unit_mode "$COMPUTING_UNIT_MODE" \
-                --arg timestamp "$(date -Iseconds)" \
-                '{
-                    cloudapp_name: $cloudapp_name,
-                    computing_unit_mode: $computing_unit_mode,
-                    alias: $alias,
-                    task: {
-                        type: "snr_calculation",
-                        parameters: {
-                            test_mode: true,
-                            timestamp: $timestamp,
-                            echo: "Hello from queue-job.sh"
-                        }
+        task_payload=$(jq -n \
+            --arg cloudapp_name "$CLOUDAPP_NAME" \
+            --arg alias "$job_alias" \
+            --arg timestamp "$(date -Iseconds)" \
+            '{
+                cloudapp_name: $cloudapp_name,
+                alias: $alias,
+                task: {
+                    type: "snr_calculation",
+                    parameters: {
+                        test_mode: true,
+                        timestamp: $timestamp,
+                        echo: "Hello from queue-job.sh"
                     }
-                }')
-        else
-            task_payload=$(jq -n \
-                --arg cloudapp_name "$CLOUDAPP_NAME" \
-                --arg alias "$job_alias" \
-                --arg timestamp "$(date -Iseconds)" \
-                '{
-                    cloudapp_name: $cloudapp_name,
-                    alias: $alias,
-                    task: {
-                        type: "snr_calculation",
-                        parameters: {
-                            test_mode: true,
-                            timestamp: $timestamp,
-                            echo: "Hello from queue-job.sh"
-                        }
-                    }
-                }')
-        fi
+                }
+            }')
     fi
     
     echo ""

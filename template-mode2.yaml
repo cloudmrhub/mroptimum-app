@@ -63,6 +63,21 @@ Parameters:
     Type: String
     Description: "ECR URI for the Fargate image (from CloudMR's account)"
 
+  CloudMRAccountId:
+    Type: String
+    Default: '469266894233'
+    Description: "CloudMR account id (used for cross-account trust if specific role ARN not provided)"
+
+  CloudMRQueueJobRoleArn:
+    Type: String
+    Default: ''
+    Description: "Optional: explicit ARN of CloudMR's QueueJob role that should be allowed to assume the cross-account role"
+
+  ExternalId:
+    Type: String
+    Default: ''
+    Description: "Optional ExternalId that CloudMR must use when assuming the cross-account role (recommended for extra security)"
+
   LambdaImageUri:
     Type: String
     Description: "ECR URI for the Lambda image (from CloudMR's account)"
@@ -132,6 +147,43 @@ Resources:
         SecurityGroupIds:    !Ref SecurityGroupIds
         LambdaImageUri:      !Ref LambdaImageUri
 
+  # Cross-account role that allows CloudMR's QueueJob (or the CloudMR account) to assume
+  CloudMRCrossAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-CloudMRCrossAccountRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              AWS: !If [UseSpecificRoleArn, !Ref CloudMRQueueJobRoleArn, !Sub "arn:aws:iam::${CloudMRAccountId}:root"]
+            # Optionally require an ExternalId
+            Condition: !If [HasExternalId, {StringEquals: {"sts:ExternalId": !Ref ExternalId}}, !Ref AWS::NoValue]
+      Policies:
+        - PolicyName: CloudMRCrossAccountPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !GetAtt CalculationApp.Outputs.StateMachineArn
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${ResultsBucketName}"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${ResultsBucketName}/*"
+
+Conditions:
+  UseSpecificRoleArn: !Not [!Equals [!Ref CloudMRQueueJobRoleArn, ""]]
+  HasExternalId: !Not [!Equals [!Ref ExternalId, ""]]
+
 Outputs:
   CalculationStateMachineArn:
     Description: "ARN of the State Machine for job orchestration"
@@ -166,3 +218,15 @@ Outputs:
   Mode:
     Description: "Execution mode (mode2 = user-owned)"
     Value: "mode2"
+
+  CloudMRCrossAccountRoleArn:
+    Description: "ARN of the cross-account role that CloudMR can assume to start executions"
+    Value: !GetAtt CloudMRCrossAccountRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudMRCrossAccountRoleArn"
+
+  CloudMRCrossAccountRoleArn:
+    Description: "ARN of the cross-account role that CloudMR can assume to start executions"
+    Value: !GetAtt CloudMRCrossAccountRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudMRCrossAccountRoleArn"

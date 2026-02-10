@@ -395,6 +395,14 @@ For questions or issues, contact CloudMRHub support.
 - `scripts/deploy-and-register-mode2.sh` (main deploy script)
 - `scripts/register-computing-unit.sh` (registration logic)
 
+Optional cross-account configuration
+
+- You can pass a CloudMR role ARN and/or an ExternalId to the deploy script so the stack creates a cross-account role with a trust policy targeted at CloudMR:
+  - `--cloudmr-role-arn arn:aws:iam::469266894233:role/QueueJobFunctionRole` (optional)
+  - `--external-id my-external-id` (optional, recommended for extra security)
+
+The deploy script will export the created cross-account role ARN and include it in the registration payload sent to CloudMR, so CloudMR can assume the role (sts:AssumeRole) and call StartExecution in your account.
+
 ### Deployment Steps
 
 1. **Set AWS Credentials**
