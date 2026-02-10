@@ -29,17 +29,7 @@
 #   --password / CLOUDMR_PASSWORD  CloudMR Brain login password
 #   --profile / AWS_PROFILE        AWS CLI profile for the user's account
 #
-# Optional:
-#   --region           AWS region (default: us-east-1)
-#   --stack-name       CloudFormation stack name (default: mroptimum-mode2)
-#   --api-url          CloudMR Brain API URL
-#   --ecr-account      AWS account ID that hosts the ECR images (default: 469266894233)
-#   --ecr-region       Region of the ECR images (default: us-east-1)
-#   --image-tag        Docker image tag (default: latest)
-#   --app-name         CloudMR app name (default: MR Optimum)
-#   --data-bucket      S3 data bucket name (default: cloudmr-data-cloudmrhub-brain-us-east-1)
-#   --results-bucket   S3 results bucket name (default: cloudmr-results-cloudmrhub-brain-us-east-1)
-#   --failed-bucket    S3 failed bucket name (default: cloudmr-failed-cloudmrhub-brain-us-east-1)
+#   --alias            Alias for the computing unit (default: Mode 2)
 
 set -euo pipefail
 
@@ -69,6 +59,7 @@ STACK_NAME="${STACK_NAME:-mroptimum-mode2}"
 CLOUDMR_API_URL="${CLOUDMR_API_URL:-${CLOUDM_MR_BRAIN:-https://brain.aws.cloudmrhub.com/Prod}}"
 APP_NAME="${APP_NAME:-MR Optimum}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
+ALIAS="${ALIAS:-Mode 2}"
 
 # CloudMR's ECR account (where the Docker images live)
 ECR_ACCOUNT="${ECR_ACCOUNT:-469266894233}"
@@ -97,6 +88,7 @@ while [[ $# -gt 0 ]]; do
         --data-bucket)    DATA_BUCKET="$2";     shift 2 ;;
         --results-bucket) RESULTS_BUCKET="$2";  shift 2 ;;
         --failed-bucket)  FAILED_BUCKET="$2";   shift 2 ;;
+        --alias)        ALIAS="$2";            shift 2 ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -116,6 +108,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --data-bucket NAME      S3 data bucket          (default: cloudmr-data-cloudmrhub-brain-us-east-1)"
             echo "  --results-bucket NAME   S3 results bucket       (default: cloudmr-results-cloudmrhub-brain-us-east-1)"
             echo "  --failed-bucket NAME    S3 failed bucket        (default: cloudmr-failed-cloudmrhub-brain-us-east-1)"
+            echo "  --alias ALIAS           Alias for computing unit (default: Mode 2)"
             exit 0
             ;;
         *) log_error "Unknown option: $1"; exit 1 ;;
@@ -473,6 +466,7 @@ REG_PAYLOAD=$(jq -n \
     --arg resultsBucket "$RESULTS_BUCKET" \
     --arg failedBucket "$FAILED_BUCKET" \
     --arg dataBucket "$DATA_BUCKET" \
+    --arg alias "Mode 2" \
     '{
         appName: $appName,
         mode: $mode,
@@ -483,6 +477,7 @@ REG_PAYLOAD=$(jq -n \
         resultsBucket: $resultsBucket,
         failedBucket: $failedBucket,
         dataBucket: $dataBucket,
+        alias: $alias,
         isDefault: false
     }')
 

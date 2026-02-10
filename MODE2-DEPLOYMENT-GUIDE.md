@@ -376,3 +376,77 @@ FargateTaskDefinition:
 5. ✅ Set up billing alerts
 
 For questions or issues, contact CloudMRHub support.
+
+---
+
+## MR Optimum Mode 2 Deployment (User-Owned)
+
+### Prerequisites
+- AWS CLI, SAM CLI, jq, curl installed
+- AWS account with permissions for CloudFormation, Lambda, ECS, ECR, S3
+- Access to CloudMR ECR images (cross-account pull enabled)
+- VPC with at least 2 subnets and a security group
+- CloudMR Brain API endpoint URL
+- CloudMR admin credentials (email/password)
+
+### Required Files
+- `template-mode2.yaml` (root SAM template)
+- `calculation/template.yaml` (nested calculation stack)
+- `scripts/deploy-and-register-mode2.sh` (main deploy script)
+- `scripts/register-computing-unit.sh` (registration logic)
+
+### Deployment Steps
+
+1. **Set AWS Credentials**
+   ```bash
+   aws configure --profile eros
+   ```
+
+2. **Run the Deployment Script**
+   ```bash
+   ./scripts/deploy-and-register-mode2.sh \
+       --email 'your@email.com' \
+       --password 'yourpassword' \
+       --profile eros
+   ```
+   Options:
+   - `--region` (default: us-east-1)
+   - `--stack-name` (default: mroptimum-mode2)
+   - `--data-bucket`, `--results-bucket`, `--failed-bucket` (defaults to Mode 1 bucket names)
+
+3. **Script Workflow**
+   - Validates tools and credentials
+   - Logs in to CloudMR Brain
+   - Resolves ECR image URIs
+   - Detects or prompts for VPC, subnets, security group
+   - Deploys the stack using `template-mode2.yaml`
+   - Registers the computing unit with CloudMR Brain
+   - Outputs stack details and registration status
+
+4. **Troubleshooting**
+   - If deployment fails, check CloudFormation events:
+     ```bash
+     aws cloudformation describe-stack-events --stack-name mroptimum-mode2 --profile eros --region us-east-1
+     ```
+   - Common issues:
+     - ECR cross-account pull not enabled
+     - Lambda memory size > 3008 MB (fix in calculation/template.yaml)
+     - Invalid AWS credentials
+
+5. **Cleanup**
+   To delete the stack:
+   ```bash
+   aws cloudformation delete-stack --stack-name mroptimum-mode2 --profile eros --region us-east-1
+   ```
+
+---
+
+**Summary:**
+- Use `deploy-and-register-mode2.sh` for all-in-one deployment and registration
+- Ensure bucket names match Mode 1 (or override as needed)
+- All infrastructure runs in your AWS account
+- Registered as Mode 2 computing unit in CloudMR Brain
+
+---
+
+For advanced automation, you can adapt this workflow to GitHub Actions or other CI/CD tools.

@@ -211,6 +211,9 @@ register_computing_unit() {
             --arg resultsBucket "$RESULTS_BUCKET" \
             --arg failedBucket "$FAILED_BUCKET" \
             --arg dataBucket "$DATA_BUCKET" \
+            --arg alias "Mode 1" \
+            --arg logo "https://cloudmrbuckets.s3.us-east-1.amazonaws.com/mro/mroptimum_logo.png" \
+            --arg logoPosition "top" \
             '{
                 appName: $appName,
                 mode: $mode,
@@ -221,10 +224,19 @@ register_computing_unit() {
                 resultsBucket: $resultsBucket,
                 failedBucket: $failedBucket,
                 dataBucket: $dataBucket,
-                isDefault: true
+                isDefault: true,
+                alias: $alias,
+                logo: $logo,
+                logoPosition: $logoPosition
             }')
     else
         # Mode 2: User-owned
+        local alias_payload
+        if [[ -n "${ALIAS:-}" ]]; then
+            alias_payload="$ALIAS"
+        else
+            alias_payload="Mode 2"
+        fi
         payload=$(jq -n \
             --arg appName "$APP_NAME" \
             --arg mode "$MODE" \
@@ -235,6 +247,7 @@ register_computing_unit() {
             --arg resultsBucket "$RESULTS_BUCKET" \
             --arg failedBucket "$FAILED_BUCKET" \
             --arg dataBucket "$DATA_BUCKET" \
+            --arg alias "$alias_payload" \
             '{
                 appName: $appName,
                 mode: $mode,
@@ -245,7 +258,8 @@ register_computing_unit() {
                 resultsBucket: $resultsBucket,
                 failedBucket: $failedBucket,
                 dataBucket: $dataBucket,
-                isDefault: false
+                isDefault: false,
+                alias: $alias
             }')
     fi
     
