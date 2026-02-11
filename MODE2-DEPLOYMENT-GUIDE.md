@@ -398,10 +398,38 @@ For questions or issues, contact CloudMRHub support.
 Optional cross-account configuration
 
 - You can pass a CloudMR role ARN and/or an ExternalId to the deploy script so the stack creates a cross-account role with a trust policy targeted at CloudMR:
+
+Auto-update trust policy (--auto-update-trust)
+
+- If you pass `--auto-update-trust` when running `deploy-and-register-mode2.sh`, the script will automatically update the deployed cross-account role's assume-role policy to include the supplied `--cloudmr-role-arn` **without prompting**. This is intended for non-interactive or CI-driven deployments where you explicitly consent to the change.
+- Requirements & security:
+  - You must run the script with AWS credentials that have `iam:UpdateAssumeRolePolicy` permission for the cross-account role (typical if you deployed the stack).
+  - You must supply `--cloudmr-role-arn <ARN>` (the script validates presence and will fail if omitted).
+  - The script will write an audit note to `exports.mode2.sh` when it updates the trust policy (`MODE2_CROSS_ACCOUNT_ROLE_TRUST_UPDATED*` variables).
+  - CloudTrail logging (if enabled in your account) will record the IAM policy change — see your organization's CloudTrail logs for a record.
+
+Example non-interactive invocation:
+
+```bash
+./scripts/deploy-and-register-mode2.sh \
+  --profile myprofile \
+  --cloudmr-role-arn arn:aws:iam::469266894233:role/QueueJobRole \
+  --external-id EXID \
+  --auto-update-trust
+```
+
+Note: The `deploy-and-register-mode2.sh` script will verify the deployed cross-account role's trust policy after deployment and can optionally update it to explicitly allow the provided CloudMR QueueJob role ARN (this requires `iam:UpdateAssumeRolePolicy` permission in your account). The script defaults to CloudMR's `QueueJobFunctionRole` if you don't supply a role ARN.
   - `--cloudmr-role-arn arn:aws:iam::469266894233:role/QueueJobFunctionRole` (optional)
   - `--external-id my-external-id` (optional, recommended for extra security)
 
 The deploy script will export the created cross-account role ARN and include it in the registration payload sent to CloudMR, so CloudMR can assume the role (sts:AssumeRole) and call StartExecution in your account.
+
+Defaults and recommended behavior
+
+- By default the Mode 2 template will set the cross-account role trust to CloudMR's QueueJob role ARN: `arn:aws:iam::469266894233:role/QueueJobFunctionRole`. This is more secure than trusting the entire account root.
+- We **strongly recommend** you pass an `--external-id` when running the deploy or set the `ExternalId` parameter in the template to protect against confused-deputy attacks. If you pass one, CloudMR must use the same ExternalId when assuming the role.
+
+If you want to use a different CloudMR role (for example a specific QueueJob role variation), pass `--cloudmr-role-arn` to `deploy-and-register-mode2.sh`.
 
 ### Deployment Steps
 

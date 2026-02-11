@@ -71,7 +71,7 @@ Parameters:
   CloudMRQueueJobRoleArn:
     Type: String
     Default: ''
-    Description: "Optional: explicit ARN of CloudMR's QueueJob role that should be allowed to assume the cross-account role"
+    Description: "Optional: ARN of CloudMR's QueueJob role that should be allowed to assume the cross-account role (leave empty to allow the CloudMR account root)"
 
   ExternalId:
     Type: String

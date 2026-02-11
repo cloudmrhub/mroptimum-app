@@ -83,6 +83,8 @@ while [[ $# -gt 0 ]]; do
         --stack-name)   STACK_NAME="$2";       shift 2 ;;
         --api-url)      CLOUDMR_API_URL="$2";  shift 2 ;;
         --cloudmr-role-arn) CLOUDMR_ROLE_ARN="$2"; shift 2 ;;
+        --auto-update-trust) AUTO_UPDATE_TRUST=true; shift 1 ;;
+        --yes) ASSUME_YES=true; shift 1 ;;
         --external-id)      EXTERNAL_ID="$2";      shift 2 ;;
         --ecr-account)  ECR_ACCOUNT="$2";      shift 2 ;;
         --ecr-region)   ECR_REGION="$2";       shift 2 ;;
@@ -117,6 +119,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --s3-bucket NAME        S3 bucket to stage SAM artifacts (optional - will be created if missing)"
             echo "  --cloudmr-role-arn ARN Optional: CloudMR's QueueJob role ARN that will assume the cross-account role"
             echo "  --external-id ID       Optional: ExternalId that cloudmr must provide when assuming the role"
+            echo "  --auto-update-trust    Automatically update the deployed cross-account role trust policy to include the provided CloudMR role ARN (non-interactive, requires iam:UpdateAssumeRolePolicy)."
+            echo "  --yes                  Skip confirmation prompts (useful with --auto-update-trust in CI)."
+            echo "\nAfter deployment, the script verifies the deployed cross-account role's trust policy and can update it to explicitly allow the provided CloudMR QueueJob role ARN (requires iam:UpdateAssumeRolePolicy permission)."
             echo "  --alias ALIAS           Alias for computing unit (default: Mode 2)"
             exit 0
             ;;
@@ -128,6 +133,8 @@ done
     S3_BUCKET="${S3_BUCKET:-}"
     CLOUDMR_ROLE_ARN="${CLOUDMR_ROLE_ARN:-}"
     EXTERNAL_ID="${EXTERNAL_ID:-}"
+    AUTO_UPDATE_TRUST="${AUTO_UPDATE_TRUST:-false}"
+    ASSUME_YES="${ASSUME_YES:-false}"
 
 # ============================================================================
 # Build AWS CLI profile argument
@@ -188,6 +195,7 @@ if ! USER_AWS_ACCOUNT_ID=$(aws sts get-caller-identity $AWS_ARGS --query Account
     fi
     exit 1
 fi
+
 
 log_success "AWS Account:  $USER_AWS_ACCOUNT_ID"
 log_info    "AWS Profile:  ${AWS_PROFILE:-default}"
@@ -445,8 +453,13 @@ PARAM_OVERRIDES=(
     "FailedBucketName=$FAILED_BUCKET"
     "StageName=Prod"
 )
+# Include CloudMRQueueJobRoleArn only if provided; otherwise leave blank so the
+# template will fall back to the CloudMR account root (less secure but avoids
+# invalid principal errors when the specific role ARN is not known).
 if [[ -n "$CLOUDMR_ROLE_ARN" ]]; then
     PARAM_OVERRIDES+=("CloudMRQueueJobRoleArn=$CLOUDMR_ROLE_ARN")
+else
+    log_warn "No CloudMR QueueJob role ARN supplied; the stack will default to allowing the CloudMR account root to assume the role. For best security, provide a specific role ARN with --cloudmr-role-arn."
 fi
 if [[ -n "$EXTERNAL_ID" ]]; then
     PARAM_OVERRIDES+=("ExternalId=$EXTERNAL_ID")
@@ -523,6 +536,97 @@ else
     CROSS_ACCOUNT_ROLE_ARN=""
 fi
 
+# Verify the deployed role's trust policy so it explicitly allows the QueueJob role
+if [[ -n "$CROSS_ACCOUNT_ROLE_ARN" ]]; then
+        ROLE_NAME="${STACK_NAME}-CloudMRCrossAccountRole"
+        log_step "Verify cross-account role trust policy ($ROLE_NAME)"
+        ASSUME_POLICY_JSON=$(aws iam get-role --role-name "$ROLE_NAME" $AWS_ARGS --query 'Role.AssumeRolePolicyDocument' --output json 2>/dev/null || echo "")
+        if [[ -z "$ASSUME_POLICY_JSON" ]]; then
+                log_warn "Could not read assume-role policy for $ROLE_NAME. Skipping trust verification."
+        else
+                PRINC_AWS=$(echo "$ASSUME_POLICY_JSON" | jq -r '.Statement[]?.Principal?.AWS' | tr '\n' ' ')
+                if echo "$PRINC_AWS" | grep -F -q "$CLOUDMR_ROLE_ARN"; then
+                        log_success "Role trust policy already grants assume to: $CLOUDMR_ROLE_ARN"
+                else
+                        log_warn "Role trust policy does NOT grant assume to: $CLOUDMR_ROLE_ARN"
+                        echo "Current assume-role policy:"; echo "$ASSUME_POLICY_JSON" | jq .
+                        # Decide whether to auto-update (non-interactive) or prompt
+                        if [[ "$AUTO_UPDATE_TRUST" == "true" ]]; then
+                            # Auto-update requires a provided CloudMR role ARN
+                            if [[ -z "$CLOUDMR_ROLE_ARN" ]]; then
+                                log_error "--auto-update-trust requires --cloudmr-role-arn to be supplied. Aborting."
+                                exit 1
+                            fi
+                            log_info "Auto-updating trust policy to allow $CLOUDMR_ROLE_ARN to assume $ROLE_NAME (non-interactive)"
+                            DO_UPDATE=true
+                        else
+                            if [[ "$ASSUME_YES" == "true" ]]; then
+                                DO_UPDATE=true
+                            else
+                                read -rp "Update trust policy to allow $CLOUDMR_ROLE_ARN to assume this role now? [Y/n]: " UPDATE_TRUST
+                                if [[ "${UPDATE_TRUST:-Y}" =~ ^[Yy] ]]; then
+                                    DO_UPDATE=true
+                                else
+                                    DO_UPDATE=false
+                                fi
+                            fi
+                        fi
+
+                        if [[ "$DO_UPDATE" == "true" ]]; then
+                            TMP_TRUST_FILE=$(mktemp /tmp/mroptimum-trust.XXXXXX.json)
+                            if [[ -n "$EXTERNAL_ID" ]]; then
+                                cat > "$TMP_TRUST_FILE" <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": { "AWS": "$CLOUDMR_ROLE_ARN" },
+            "Action": "sts:AssumeRole",
+            "Condition": { "StringEquals": { "sts:ExternalId": "$EXTERNAL_ID" } }
+        }
+    ]
+}
+EOF
+                            else
+                                cat > "$TMP_TRUST_FILE" <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": { "AWS": "$CLOUDMR_ROLE_ARN" },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}
+EOF
+                            fi
+
+                            ERROR_FILE=$(mktemp /tmp/mroptimum-trust-err.XXXXXX)
+                            if aws iam update-assume-role-policy --role-name "$ROLE_NAME" --policy-document file://"$TMP_TRUST_FILE" $AWS_ARGS 2>"$ERROR_FILE"; then
+                                log_success "Updated trust policy for $ROLE_NAME to allow $CLOUDMR_ROLE_ARN"
+                                # re-read policy
+                                ASSUME_POLICY_JSON=$(aws iam get-role --role-name "$ROLE_NAME" $AWS_ARGS --query 'Role.AssumeRolePolicyDocument' --output json 2>/dev/null || echo "")
+                                echo "New assume-role policy:"; echo "$ASSUME_POLICY_JSON" | jq .
+                                TRUST_UPDATED="true"
+                                TRUST_UPDATED_AT="$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+                                TRUST_UPDATED_BY="$CLOUDMR_EMAIL"
+                                TRUST_UPDATED_AUTOMATIC="${AUTO_UPDATE_TRUST:-false}"
+                            else
+                                log_error "Failed to update trust policy for $ROLE_NAME. Ensure your AWS credentials have iam:UpdateAssumeRolePolicy permission."
+                                log_error "AWS error message:"; sed -n '1,120p' "$ERROR_FILE" || true
+                                rm -f "$TMP_TRUST_FILE" "$ERROR_FILE"
+                                exit 1
+                            fi
+                            rm -f "$TMP_TRUST_FILE" "$ERROR_FILE"
+                        else
+                            log_info "Skipping trust policy update. If you skip, CloudMR will not be able to assume this role until it is updated."
+                        fi
+                fi
+        fi
+fi
+
 # Bucket names are known from our parameters (no need to query stack outputs)
 # They were already set from defaults or CLI flags
 log_success "Data Bucket:    $DATA_BUCKET"
@@ -547,6 +651,18 @@ export CROSS_ACCOUNT_ROLE_ARN="$CROSS_ACCOUNT_ROLE_ARN"
 EOF
 log_success "Wrote $EXPORTS_FILE"
 
+# If we updated the trust policy automatically, record an audit note in the exports file
+if [[ "${TRUST_UPDATED:-false}" == "true" ]]; then
+    cat >> "$ROOT_DIR/$EXPORTS_FILE" <<EOF
+# Cross-account role trust policy was updated by deploy script
+export MODE2_CROSS_ACCOUNT_ROLE_TRUST_UPDATED="true"
+export MODE2_CROSS_ACCOUNT_ROLE_TRUST_UPDATED_AT="$TRUST_UPDATED_AT"
+export MODE2_CROSS_ACCOUNT_ROLE_TRUST_UPDATED_BY="$TRUST_UPDATED_BY"
+export MODE2_CROSS_ACCOUNT_ROLE_TRUST_UPDATED_AUTOMATIC="$TRUST_UPDATED_AUTOMATIC"
+EOF
+    log_info "Wrote trust update audit to $EXPORTS_FILE"
+fi
+
 # ============================================================================
 # Step 7: Register Mode 2 computing unit with CloudMR Brain
 # ============================================================================
@@ -569,6 +685,10 @@ REG_PAYLOAD=$(jq -n \
     --arg alias "$ALIAS" \
     --arg crossAccountRoleArn "$CROSS_ACCOUNT_ROLE_ARN" \
     --arg externalId "$EXTERNAL_ID" \
+    --arg trustUpdated "${TRUST_UPDATED:-false}" \
+    --arg trustUpdatedBy "${TRUST_UPDATED_BY:-}" \
+    --arg trustUpdatedAt "${TRUST_UPDATED_AT:-}" \
+    --arg trustUpdatedAutomatic "${TRUST_UPDATED_AUTOMATIC:-false}" \
     '{
         appName: $appName,
         mode: $mode,
@@ -582,6 +702,11 @@ REG_PAYLOAD=$(jq -n \
         alias: $alias,
         crossAccountRoleArn: $crossAccountRoleArn,
         externalId: ($externalId // ""),
+        # Trust update metadata if the script updated the role
+        autoUpdatedTrust: ($trustUpdated == "true"),
+        trustUpdatedBy: ($trustUpdatedBy // null),
+        trustUpdatedAt: ($trustUpdatedAt // null),
+        trustUpdatedAutomatic: ($trustUpdatedAutomatic == "true"),
         isDefault: false
     }')
 
