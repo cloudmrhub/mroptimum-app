@@ -171,6 +171,10 @@ queue_job() {
     echo ""
     log_info "Queue response:"
     echo "$response" | jq .
+
+    # Save the exact payload that was sent to the API for debugging/audit
+    # Overwrites /tmp/a.json each run (do not leave sensitive data here long-term)
+    echo "$task_payload" > /tmp/a.json
     
     # Extract execution ARN if present
     export EXECUTION_ARN=$(echo "$response" | jq -r '.executionArn // empty')
