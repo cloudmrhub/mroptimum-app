@@ -179,6 +179,7 @@ def do_process(event, context=None, s3=None):
 
         _log_deployed_image_info()
 
+
         # s3 implementation
         if "Records" in event and event["Records"] and "s3" in event["Records"][0]:
             # ----- S3 path: extract bucket/key, download JSON -----
