@@ -10,6 +10,15 @@ on:
       - 'calculation/template.yaml'
       - '.github/workflows/deploy-and-register.yml'
       - 'calculation/src/handler.py'  # Handler changes need re-deploy but not rebuild
+
+  # Automatically redeploy whenever new images are pushed to ECR
+  workflow_run:
+    workflows: ["Build & Push Docker Images"]
+    types:
+      - completed
+    branches:
+      - main
+      - mode1_mode2
       
   workflow_dispatch:
     inputs:
@@ -106,7 +115,12 @@ jobs:
     name: Deploy SAM Stack
     runs-on: ubuntu-latest
     needs: [build-images-optional]
-    if: ${{ always() }}  # Run even if build was skipped
+    # Run when:
+    # - triggered by push/workflow_dispatch (always, even if optional build was skipped)
+    # - triggered by workflow_run only if the upstream build workflow succeeded
+    if: |
+      always() &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     outputs:
       state_machine_arn: ${{ steps.outputs.outputs.state_machine_arn }}
       data_bucket: ${{ steps.outputs.outputs.data_bucket }}
@@ -130,18 +144,47 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           echo "account_id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
 
-      - name: Construct Image URIs (using :latest tag)
+      - name: Get Image Digests from ECR
         id: images
         env:
           ACCOUNT_ID: ${{ steps.account.outputs.account_id }}
         run: |
+          set -euo pipefail
           ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
-          LAMBDA_URI="${ECR_REGISTRY}/${LAMBDA_REPO}:latest"
-          FARGATE_URI="${ECR_REGISTRY}/${FARGATE_REPO}:latest"
+
+          # Resolve the current digest for :latest so CloudFormation always detects
+          # a change when a new image is pushed (immutable digest != mutable tag).
+          LAMBDA_DIGEST=$(aws ecr describe-images \
+            --repository-name ${LAMBDA_REPO} \
+            --image-ids imageTag=latest \
+            --region ${{ env.AWS_REGION }} \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          if [ -z "$LAMBDA_DIGEST" ] || [ "$LAMBDA_DIGEST" = "None" ]; then
+            echo "❌ Could not resolve Lambda image digest. Ensure the image has been pushed to ECR first."
+            exit 1
+          fi
+
+          FARGATE_DIGEST=$(aws ecr describe-images \
+            --repository-name ${FARGATE_REPO} \
+            --image-ids imageTag=latest \
+            --region ${{ env.AWS_REGION }} \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          if [ -z "$FARGATE_DIGEST" ] || [ "$FARGATE_DIGEST" = "None" ]; then
+            echo "❌ Could not resolve Fargate image digest. Ensure the image has been pushed to ECR first."
+            exit 1
+          fi
+
+          LAMBDA_URI="${ECR_REGISTRY}/${LAMBDA_REPO}@${LAMBDA_DIGEST}"
+          FARGATE_URI="${ECR_REGISTRY}/${FARGATE_REPO}@${FARGATE_DIGEST}"
+
           echo "lambda_image_uri=${LAMBDA_URI}" >> $GITHUB_OUTPUT
           echo "fargate_image_uri=${FARGATE_URI}" >> $GITHUB_OUTPUT
-          echo "Lambda Image (latest):  ${LAMBDA_URI}"
-          echo "Fargate Image (latest): ${FARGATE_URI}"
+          echo "Lambda Image (digest):  ${LAMBDA_URI}"
+          echo "Fargate Image (digest): ${FARGATE_URI}"
 
       - name: Setup SAM CLI
         uses: aws-actions/setup-sam@v2
@@ -213,6 +256,24 @@ jobs:
           echo "Data Bucket:       ${DATA_BUCKET}"
           echo "Results Bucket:    ${RESULTS_BUCKET}"
           echo "Failed Bucket:     ${FAILED_BUCKET}"
+
+      - name: Force Lambda function to use new image
+        run: |
+          LAMBDA_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`RunJobLambdaArn`].OutputValue' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$LAMBDA_ARN" ] || [ "$LAMBDA_ARN" = "None" ]; then
+            echo "⚠ RunJobLambdaArn not found in stack outputs, skipping explicit update"
+            exit 0
+          fi
+
+          echo "Updating Lambda function image..."
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_ARN" \
+            --image-uri "${{ steps.images.outputs.lambda_image_uri }}"
+          echo "✓ Lambda function updated to: ${{ steps.images.outputs.lambda_image_uri }}"
 
   # ==========================================================================
   # JOB 2: Check for Existing Mode 1 Computing Unit
