@@ -101,7 +101,7 @@ pillow==12.0.0
     #   matplotlib
     #   mrotools
     #   scikit-image
-pyable-eros-montin @ git+https://github.com/erosmontin/pyable.git
+pyable-eros-montin @ git+https://github.com/erosmontin/pyable.git@v2
     # via
     #   cmtools
     #   mrotools
@@ -109,7 +109,7 @@ pygments==2.19.2
     # via sphinx
 pygrappa==0.26.3
     # via cmtools
-pynico-eros-montin @ git+https://github.com/erosmontin/pynico.git
+pynico-eros-montin @ git+https://github.com/erosmontin/pynico.git@v2
     # via
     #   -r requirements.in
     #   cmtools

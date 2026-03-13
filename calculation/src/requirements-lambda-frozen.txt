@@ -29,10 +29,10 @@ networkx==3.4.2
 numpy==2.2.6
 packaging==25.0
 pillow==11.3.0
-pyable_eros_montin @ git+https://github.com/erosmontin/pyable.git
+pyable_eros_montin @ git+https://github.com/erosmontin/pyable.git@v2
 Pygments==2.19.2
 pygrappa==0.26.3
-pynico_eros_montin @ git+https://github.com/erosmontin/pynico.git
+pynico_eros_montin @ git+https://github.com/erosmontin/pynico.git@v2
 pyparsing==3.2.3
 python-dateutil==2.9.0.post0
 raider_eros_montin @ git+https://github.com/erosmontin/raider.git
