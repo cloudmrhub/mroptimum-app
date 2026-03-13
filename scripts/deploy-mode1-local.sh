@@ -74,12 +74,6 @@ echo ""
 
 # Get image URIs
 PRIVATE_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-LAMBDA_IMAGE_URI="${PRIVATE_REGISTRY}/mroptimum-lambda:latest"
-FARGATE_IMAGE_URI="${PRIVATE_REGISTRY}/mroptimum-fargate:latest"
-
-echo "Lambda Image:  $LAMBDA_IMAGE_URI"
-echo "Fargate Image: $FARGATE_IMAGE_URI"
-echo ""
 
 # Check images exist
 echo "Checking if images exist in ECR..."
@@ -101,6 +95,45 @@ if ! aws ecr describe-images \
     exit 1
 fi
 echo "✓ Images found"
+echo ""
+
+# Resolve immutable image digests so CloudFormation always detects a change
+# when new images are pushed (a mutable :latest tag never changes as a string).
+echo "Resolving image digests from ECR..."
+LAMBDA_DIGEST=$(aws ecr describe-images \
+    --repository-name mroptimum-lambda \
+    --image-ids imageTag=latest \
+    $AWS_ARGS \
+    --region "$AWS_REGION" \
+    --query 'imageDetails[0].imageDigest' \
+    --output text 2>&1) || LAMBDA_DIGEST=""
+
+FARGATE_DIGEST=$(aws ecr describe-images \
+    --repository-name mroptimum-fargate \
+    --image-ids imageTag=latest \
+    $AWS_ARGS \
+    --region "$AWS_REGION" \
+    --query 'imageDetails[0].imageDigest' \
+    --output text 2>&1) || FARGATE_DIGEST=""
+
+if [ -n "$LAMBDA_DIGEST" ] && [ "$LAMBDA_DIGEST" != "None" ] && [[ "$LAMBDA_DIGEST" == sha256:* ]]; then
+    LAMBDA_IMAGE_URI="${PRIVATE_REGISTRY}/mroptimum-lambda@${LAMBDA_DIGEST}"
+    echo "Lambda digest: $LAMBDA_DIGEST"
+else
+    LAMBDA_IMAGE_URI="${PRIVATE_REGISTRY}/mroptimum-lambda:latest"
+    echo "⚠ Could not get Lambda digest (got: '${LAMBDA_DIGEST}'), falling back to :latest tag"
+fi
+
+if [ -n "$FARGATE_DIGEST" ] && [ "$FARGATE_DIGEST" != "None" ] && [[ "$FARGATE_DIGEST" == sha256:* ]]; then
+    FARGATE_IMAGE_URI="${PRIVATE_REGISTRY}/mroptimum-fargate@${FARGATE_DIGEST}"
+    echo "Fargate digest: $FARGATE_DIGEST"
+else
+    FARGATE_IMAGE_URI="${PRIVATE_REGISTRY}/mroptimum-fargate:latest"
+    echo "⚠ Could not get Fargate digest (got: '${FARGATE_DIGEST}'), falling back to :latest tag"
+fi
+
+echo "Lambda Image:  $LAMBDA_IMAGE_URI"
+echo "Fargate Image: $FARGATE_IMAGE_URI"
 echo ""
 
 # Get networking parameters
@@ -262,6 +295,28 @@ echo ""
 echo "╔═══════════════════════════════════════════════════════════════╗"
 echo "║   Deployment Complete!                                        ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
+echo ""
+
+# Explicitly update the Lambda function image so it picks up the new image
+# even if CloudFormation considered the stack unchanged.
+echo "Updating Lambda function image..."
+LAMBDA_ARN=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    $AWS_ARGS \
+    --region "$AWS_REGION" \
+    --query 'Stacks[0].Outputs[?OutputKey==`RunJobLambdaArn`].OutputValue' \
+    --output text 2>/dev/null || echo "")
+
+if [ -n "$LAMBDA_ARN" ] && [ "$LAMBDA_ARN" != "None" ]; then
+    aws lambda update-function-code \
+        --function-name "$LAMBDA_ARN" \
+        --image-uri "$LAMBDA_IMAGE_URI" \
+        $AWS_ARGS \
+        --region "$AWS_REGION" > /dev/null
+    echo "✓ Lambda function updated to: $LAMBDA_IMAGE_URI"
+else
+    echo "⚠ RunJobLambdaArn not found in stack outputs, skipping explicit update"
+fi
 echo ""
 
 # Get outputs
