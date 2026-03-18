@@ -226,7 +226,8 @@ def do_process(event, context=None, s3=None):
                 logger.write("Notice: using task-level 'output' as top-level 'output' was missing or empty")
         logger.write(f"pipelineid {pipelineid}")
         logger.write(f"token {token}")
-
+        calculation_name=info_json.get("name", "N/A")
+        print(f"Calculation name: {calculation_name}")
         # Determine flags for coilsensitivity, matlab, gfactor
         savecoils = "--no-coilsens"
         savematlab = "--no-matlab"
@@ -302,7 +303,7 @@ def do_process(event, context=None, s3=None):
             parallel_arg = "--no-parallel"
 
         # check noise and signal availability
-        if (NOISE_AVAILABLE or MULTIRAID) and SIGNAL_AVAILABLE:
+        if (NOISE_AVAILABLE or MULTIRAID or calculation_name.lower() == "mr") and SIGNAL_AVAILABLE:
             logger.write("noise and signal available, proceeding with computation")
         else:
             logger.write("WARNING: noise or signal not available, using --no-parallel")
