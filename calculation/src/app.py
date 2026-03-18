@@ -226,7 +226,6 @@ def do_process(event, context=None, s3=None):
                 logger.write("Notice: using task-level 'output' as top-level 'output' was missing or empty")
         logger.write(f"pipelineid {pipelineid}")
         logger.write(f"token {token}")
-        print(f"Calculation name: {calculation_name}")
         # Determine flags for coilsensitivity, matlab, gfactor
         savecoils = "--no-coilsens"
         savematlab = "--no-matlab"
