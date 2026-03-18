@@ -303,6 +303,7 @@ def do_process(event, context=None, s3=None):
             parallel_arg = "--no-parallel"
 
         # check noise and signal availability
+        print(f"NOISE_AVAILABLE: {NOISE_AVAILABLE}, SIGNAL_AVAILABLE: {SIGNAL_AVAILABLE}, MULTIRAID: {MULTIRAID}")
         if (NOISE_AVAILABLE or MULTIRAID or calculation_name.lower() == "mr") and SIGNAL_AVAILABLE:
             logger.write("noise and signal available, proceeding with computation")
         else:
