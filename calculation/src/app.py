@@ -226,7 +226,6 @@ def do_process(event, context=None, s3=None):
                 logger.write("Notice: using task-level 'output' as top-level 'output' was missing or empty")
         logger.write(f"pipelineid {pipelineid}")
         logger.write(f"token {token}")
-        calculation_name=info_json.get("name", "N/A")
         print(f"Calculation name: {calculation_name}")
         # Determine flags for coilsensitivity, matlab, gfactor
         savecoils = "--no-coilsens"
@@ -247,6 +246,8 @@ def do_process(event, context=None, s3=None):
         NOISE_AVAILABLE = False
         SIGNAL_AVAILABLE = False
         MULTIRAID = False
+        calculation_name=task_info.get("name", "N/A")
+
         # 6) If noise or signal == S3 type, download locally
         recon_opts = task_info["options"]["reconstructor"]["options"]
         if "noise" in recon_opts:
