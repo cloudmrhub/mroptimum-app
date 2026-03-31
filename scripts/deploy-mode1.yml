@@ -296,7 +296,7 @@ jobs:
               -H "Content-Type: application/json" \
               -d "{\"email\": \"${ADMIN_EMAIL}\", \"password\": \"${ADMIN_PASSWORD}\"}")
             
-            ADMIN_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.idToken // empty')
+            ADMIN_TOKEN=$(echo "$LOGIN_RESP" | jq -r '.id_token // .idToken // .IdToken // .access_token // .accessToken // empty')
             
             if [ -z "$ADMIN_TOKEN" ]; then
               echo "❌ Login failed. Response:"
@@ -419,7 +419,7 @@ jobs:
             ADMIN_TOKEN=$(curl -s -X POST "${CLOUDMR_API_URL}/api/auth/login" \
               -H "Content-Type: application/json" \
               -d "{\"email\": \"${ADMIN_EMAIL}\", \"password\": \"${ADMIN_PASSWORD}\"}" \
-              | jq -r '.idToken // empty')
+              | jq -r '.id_token // .idToken // .IdToken // .access_token // .accessToken // empty')
           else
             ADMIN_TOKEN="${ADMIN_TOKEN_SECRET:-}"
           fi
