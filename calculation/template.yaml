@@ -361,6 +361,14 @@ Resources:
                 "RunViaLambda": {
                   "Type": "Task",
                   "Resource": "${RunJobLambdaArn}",
+                  "Catch": [
+                    {
+                      "ErrorEquals": ["States.Timeout", "Lambda.Unknown", "Lambda.ResourceNotFoundException", "Lambda.TooManyRequestsException"],
+                      "ResultPath": "$.lambdaError",
+                      "Next": "RunViaFargate",
+                      "Comment": "Lambda timed out (15 min limit) — likely large file with many slices, retry on Fargate"
+                    }
+                  ],
                   "End": true
                 },
                 "RunViaFargate": {
