@@ -238,3 +238,10 @@ If you encounter issues not covered here:
 2. Review CloudFormation events
 3. Verify IAM permissions
 4. Check networking (VPC/subnets/security groups)
+
+
+# redeply mode1
+gh workflow run deploy-and-register.yml \
+  -r main \
+  -f force_rebuild=true \
+  -f skip_register=false

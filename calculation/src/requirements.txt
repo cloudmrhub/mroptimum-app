@@ -3,6 +3,6 @@ numpy
 requests
 jsonpickle
 
-mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git
+mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git@v3
 pynico_eros_montin @ git+https://github.com/erosmontin/pynico.git
 cmtools @ git+https://github.com/cloudmrhub/cloudmr-tools.git
