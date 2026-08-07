@@ -212,6 +212,12 @@ Resources:
                   - events:RemoveTargets
                   - events:DeleteRule
                 Resource: "*"
+              # Allow publishing to SNS for timeout notifications
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref FargateTimeoutTopic
 
   #######################################################################
   # 4) ECS Cluster (created if not existing)
@@ -374,6 +380,7 @@ Resources:
                 "RunViaFargate": {
                   "Type": "Task",
                   "Resource": "arn:aws:states:::ecs:runTask.sync",
+                  "TimeoutSeconds": 18000,
                   "Parameters": {
                     "LaunchType": "FARGATE",
                     "Cluster": "${ECSCluster}",
@@ -399,7 +406,30 @@ Resources:
                       ]
                     }
                   },
+                  "Catch": [
+                    {
+                      "ErrorEquals": ["States.Timeout"],
+                      "ResultPath": "$.fargateError",
+                      "Next": "NotifyFargateTimeout"
+                    }
+                  ],
                   "End": true
+                },
+                "NotifyFargateTimeout": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::sns:publish",
+                  "Parameters": {
+                    "TopicArn": "${FargateTimeoutTopicArn}",
+                    "Subject": "MR Optimum: Fargate job timed out (5h limit)",
+                    "Message.$": "States.Format('Fargate task exceeded 5-hour limit. Pipeline: {}. Error: {}', $.pipeline, $.fargateError.Cause)"
+                  },
+                  "ResultPath": "$.snsResult",
+                  "Next": "FargateTimeoutFail"
+                },
+                "FargateTimeoutFail": {
+                  "Type": "Fail",
+                  "Error": "FargateTimeout",
+                  "Cause": "Fargate task exceeded the 5-hour time limit"
                 }
               }
             }
@@ -407,6 +437,7 @@ Resources:
             RunJobLambdaArn:           !GetAtt RunJobLambda.Arn
             ECSCluster:                !Ref    ECSCluster
             RunJobTaskDefinitionArn:   !Ref    RunJobTaskDefinition
+            FargateTimeoutTopicArn:    !Ref    FargateTimeoutTopic
             SubnetList:
               Fn::Sub: '["${SubnetId1}","${SubnetId2}"]'
             SecurityGroupList:
@@ -442,6 +473,15 @@ Resources:
             }
           }
 
+  #######################################################################
+  # 9) SNS Topic for Fargate timeout notifications
+  #######################################################################
+  FargateTimeoutTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-fargate-timeout"
+      DisplayName: "MR Optimum Fargate Timeout Alert"
+
   RunJobFargateLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -468,3 +508,7 @@ Outputs:
   RunJobTaskDefinitionArn:
     Description: "ARN of the ECS Task Definition for RunJob"
     Value: !Ref RunJobTaskDefinition
+
+  FargateTimeoutTopicArn:
+    Description: "ARN of the SNS topic for Fargate timeout alerts (subscribe your email here)"
+    Value: !Ref FargateTimeoutTopic
