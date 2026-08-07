@@ -479,7 +479,6 @@ Resources:
   FargateTimeoutTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub "${AWS::StackName}-fargate-timeout"
       DisplayName: "MR Optimum Fargate Timeout Alert"
 
   RunJobFargateLogGroup:
