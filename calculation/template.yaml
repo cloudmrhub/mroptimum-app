@@ -480,6 +480,9 @@ Resources:
     Type: AWS::SNS::Topic
     Properties:
       DisplayName: "MR Optimum Fargate Timeout Alert"
+      Subscription:
+        - Protocol: email
+          Endpoint: "eros.montin@nyulangone.org"
 
   RunJobFargateLogGroup:
     Type: AWS::Logs::LogGroup
