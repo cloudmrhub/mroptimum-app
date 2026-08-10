@@ -1,0 +1,12 @@
+{
+  "query_info": {
+    "api_url": "https://f41j488v7j.execute-api.us-east-1.amazonaws.com/Prod",
+    "cloudapp_name": "MR Optimum",
+    "cloudapp_id": "2e294eb9-3a48-44f5-a1f8-dfeb9ec1aaf1",
+    "user_id": "bcc015b0-d009-4288-bc50-34ca5fa0ae2f",
+    "total_pipelines": 0,
+    "failed_pipelines": 0
+  },
+  "failed_tasks": [],
+  "all_tasks": []
+}
