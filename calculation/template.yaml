@@ -521,9 +521,9 @@ Resources:
   DebugBundleFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Runtime: python3.10
+      Runtime: python3.12
       Handler: debug_bundle.handler
-      CodeUri: src/
+      CodeUri: debug_bundle/
       Timeout: 900
       MemorySize: 2048
       EphemeralStorage:
