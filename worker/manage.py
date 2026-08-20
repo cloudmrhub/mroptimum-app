@@ -728,7 +728,7 @@ def run_gui():
         debug_log.config(state="disabled")
 
     def debug_lookup_pipeline():
-        """Look up a pipeline by ID from CloudMR Brain."""
+        """Look up a pipeline by ID — shows full details including logs."""
         clear_debug_log()
         pipeline_id = var_pipeline_id.get().strip()
         email = var_email.get()
@@ -748,47 +748,103 @@ def run_gui():
                 token = auth["id_token"]
                 headers = {"Authorization": f"Bearer {token}"}
 
-                # Get pipeline info
                 print(f"Looking up pipeline: {pipeline_id}\n")
 
+                # Try the API first
                 resp = requests.get(f"{BRAIN_API_URL}/api/pipeline/{pipeline_id}", headers=headers)
-                if resp.status_code != 200:
-                    print(f"Error: HTTP {resp.status_code}")
-                    print(resp.text[:500])
+                api_data = None
+                if resp.status_code == 200:
+                    api_data = resp.json()
+                    if isinstance(api_data, list) and len(api_data) == 2:
+                        api_data = api_data[1] if isinstance(api_data[1], dict) else api_data[0]
+                    if isinstance(api_data, dict) and "body" in api_data:
+                        try:
+                            api_data = json.loads(api_data["body"])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+                # Also try DynamoDB direct (for admins with AWS access)
+                db_data = None
+                profile = var_profile.get() or "default"
+                try:
+                    session = get_session(profile)
+                    dynamo = session.resource("dynamodb")
+                    table = dynamo.Table("CloudMR-Pipelines")
+                    result = table.get_item(Key={"pipeline": pipeline_id})
+                    db_data = result.get("Item")
+                except Exception as e:
+                    # Not a problem — user might not have DynamoDB access
+                    pass
+
+                # Merge info
+                data = db_data or api_data or {}
+                if not data:
+                    print(f"Pipeline not found: {pipeline_id}")
+                    print("(Check if the ID is correct, or you may not have access)")
                     return
 
-                data = resp.json()
-                # Handle the Brain's response format (can be [bool, response_obj] or dict)
-                if isinstance(data, list) and len(data) == 2:
-                    data = data[1] if isinstance(data[1], dict) else data[0]
+                print(f"{'═'*60}")
+                print(f"  Pipeline Details")
+                print(f"{'═'*60}")
+                print(f"  ID:       {pipeline_id}")
+                print(f"  Status:   {data.get('status', 'unknown')}")
+                print(f"  Alias:    {data.get('alias', 'N/A')}")
+                print(f"  Mode:     {data.get('mode', 'N/A')}")
+                print(f"  User:     {data.get('user_id', data.get('userId', 'N/A'))}")
+                print(f"  Created:  {data.get('created_at', data.get('createdAt', 'N/A'))}")
+                print(f"  Updated:  {data.get('updated_at', data.get('updatedAt', 'N/A'))}")
 
-                if isinstance(data, dict) and "body" in data:
+                output_url = data.get("output") or data.get("results")
+                if output_url:
+                    print(f"  Output:   {output_url}")
+
+                # If there's an output/results S3 URL, try to get the info.json
+                if output_url and output_url.startswith("s3://") and output_url.endswith(".zip"):
+                    print(f"\n{'─'*60}")
+                    print(f"  Computation Log (from output zip)")
+                    print(f"{'─'*60}")
                     try:
-                        data = json.loads(data["body"])
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                        import tempfile, zipfile
+                        parts = output_url.replace("s3://", "").split("/", 1)
+                        bucket, key = parts[0], parts[1]
+                        session = get_session(profile)
+                        s3 = session.client("s3")
+                        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+                        s3.download_file(bucket, key, tmp.name)
+                        with zipfile.ZipFile(tmp.name, "r") as zf:
+                            names = zf.namelist()
+                            # Try info.json first (has computation log)
+                            if "info.json" in names:
+                                with zf.open("info.json") as f:
+                                    info = json.loads(f.read())
+                                log_entries = info.get("headers", {}).get("log", [])
+                                if log_entries:
+                                    for entry in log_entries[-20:]:
+                                        t = entry.get("type", "?")
+                                        what = str(entry.get("what", ""))[:100]
+                                        marker = "!!!" if t == "ERROR" else "   "
+                                        print(f"  {marker} [{t:10}] {what}")
+                                else:
+                                    print("  (no log entries in info.json)")
+                            # Try error.txt if present
+                            if "error.txt" in names:
+                                with zf.open("error.txt") as f:
+                                    error_txt = f.read().decode("utf-8", errors="replace")
+                                if error_txt.strip():
+                                    print(f"\n  Error:")
+                                    print(f"  {error_txt.strip()[:500]}")
+                            print(f"\n  Files in zip: {names}")
+                        os.unlink(tmp.name)
+                    except Exception as e:
+                        print(f"  Could not read output zip: {e}")
+                        print(f"  (Need AWS access to bucket: {output_url.split('/')[2]})")
 
-                print(f"{'─'*50}")
-                print(f"  Pipeline: {pipeline_id}")
-                if isinstance(data, dict):
-                    print(f"  Status:   {data.get('status', 'unknown')}")
-                    print(f"  Alias:    {data.get('alias', 'N/A')}")
-                    print(f"  Mode:     {data.get('mode', 'N/A')}")
-                    print(f"  Created:  {data.get('created_at', data.get('createdAt', 'N/A'))}")
-                    print(f"  Updated:  {data.get('updated_at', data.get('updatedAt', 'N/A'))}")
-                    output = data.get("output") or data.get("results")
-                    if output:
-                        print(f"  Output:   {output}")
-                    log_entries = data.get("log")
-                    if log_entries:
-                        print(f"\n  Log:")
-                        print(f"  {log_entries}")
-                else:
-                    print(f"  Response: {json.dumps(data, indent=2, default=str)[:1000]}")
-                print(f"{'─'*50}")
+                print(f"\n{'═'*60}")
 
             except Exception as e:
                 print(f"Error: {e}")
+                import traceback
+                traceback.print_exc()
 
         def run():
             old_stdout = sys.stdout
@@ -804,7 +860,7 @@ def run_gui():
         threading.Thread(target=run, daemon=True).start()
 
     def debug_list_pipelines():
-        """List recent pipelines for the user."""
+        """List all pipelines for the app (admin/developer view)."""
         clear_debug_log()
         email = var_email.get()
         password = var_password.get()
@@ -819,9 +875,9 @@ def run_gui():
                 token = auth["id_token"]
                 headers = {"Authorization": f"Bearer {token}"}
 
-                print("Fetching your pipelines...\n")
+                print("Fetching all pipelines (admin view)...\n")
 
-                # Get pipelines for MR Optimum
+                # Get all pipelines for MR Optimum app
                 resp = requests.get(
                     f"{BRAIN_API_URL}/api/pipeline/list/2e294eb9-3a48-44f5-a1f8-dfeb9ec1aaf1",
                     headers=headers,
@@ -836,20 +892,29 @@ def run_gui():
                 # Sort by date, show most recent first
                 jobs.sort(key=lambda j: j.get("createdAt", ""), reverse=True)
 
-                print(f"{'Status':<12} {'Alias':<30} {'ID':<38} {'Date'}")
-                print(f"{'─'*12} {'─'*30} {'─'*38} {'─'*20}")
-                for j in jobs[:30]:
+                print(f"{'Status':<12} {'Mode':<8} {'Alias':<25} {'ID':<38} {'Date'}")
+                print(f"{'─'*12} {'─'*8} {'─'*25} {'─'*38} {'─'*20}")
+                for j in jobs[:50]:
                     status = j.get("status", "?")
-                    alias = (j.get("alias", "") or "")[:28]
+                    mode = j.get("mode", "?")[:7]
+                    alias = (j.get("alias", "") or "")[:23]
                     jid = j.get("id", "")
                     date = (j.get("createdAt", "") or "")[:19]
                     marker = "!" if "fail" in status.lower() else " "
-                    print(f"{marker}{status:<11} {alias:<30} {jid:<38} {date}")
+                    print(f"{marker}{status:<11} {mode:<8} {alias:<25} {jid:<38} {date}")
 
+                # Summary
+                statuses = {}
+                for j in jobs:
+                    s = j.get("status", "unknown")
+                    statuses[s] = statuses.get(s, 0) + 1
                 print(f"\n  Total: {len(jobs)} pipelines")
+                print(f"  Status breakdown: {statuses}")
 
             except Exception as e:
                 print(f"Error: {e}")
+                import traceback
+                traceback.print_exc()
 
         def run():
             old_stdout = sys.stdout
