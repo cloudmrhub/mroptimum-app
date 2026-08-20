@@ -573,10 +573,12 @@ def run_gui():
         sys.exit(1)
 
     import threading
+    import io
+    import re
 
     root = tk.Tk()
     root.title("MR Optimum — Mode 2 Worker Manager")
-    root.geometry("700x600")
+    root.geometry("750x650")
     root.resizable(True, True)
 
     # ─── Variables (pre-filled from config.toml if it exists) ───
@@ -588,8 +590,20 @@ def run_gui():
     var_api_key = tk.StringVar(value=cfg.get("api_key", ""))
     var_alias = tk.StringVar(value=cfg.get("alias", "My Cloud Worker"))
 
+    # ═══════════════════════════════════════════════════════════
+    # Notebook (Tabs)
+    # ═══════════════════════════════════════════════════════════
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill="both", expand=True, padx=5, pady=5)
+
+    # ═══════════════════════════════════════════════════════════
+    # TAB 1: Worker Management
+    # ═══════════════════════════════════════════════════════════
+    worker_tab = ttk.Frame(notebook)
+    notebook.add(worker_tab, text="  Worker  ")
+
     # ─── Settings Frame ───
-    settings_frame = ttk.LabelFrame(root, text="Settings", padding=10)
+    settings_frame = ttk.LabelFrame(worker_tab, text="Settings", padding=10)
     settings_frame.pack(fill="x", padx=10, pady=5)
 
     row = 0
@@ -616,30 +630,29 @@ def run_gui():
 
     settings_frame.columnconfigure(1, weight=1)
 
-    # ─── Buttons Frame ───
-    btn_frame = ttk.Frame(root, padding=5)
+    # ─── Worker Buttons ───
+    btn_frame = ttk.Frame(worker_tab, padding=5)
     btn_frame.pack(fill="x", padx=10)
 
-    # ─── Log Output ───
-    log_frame = ttk.LabelFrame(root, text="Output", padding=5)
-    log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+    # ─── Worker Log Output ───
+    worker_log_frame = ttk.LabelFrame(worker_tab, text="Output", padding=5)
+    worker_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-    log_text = scrolledtext.ScrolledText(log_frame, height=15, font=("Courier", 10), state="disabled")
-    log_text.pack(fill="both", expand=True)
+    worker_log = scrolledtext.ScrolledText(worker_log_frame, height=12, font=("Courier", 10), state="disabled")
+    worker_log.pack(fill="both", expand=True)
 
-    def log(msg):
-        log_text.config(state="normal")
-        log_text.insert("end", msg + "\n")
-        log_text.see("end")
-        log_text.config(state="disabled")
+    def log_worker(msg):
+        worker_log.config(state="normal")
+        worker_log.insert("end", msg + "\n")
+        worker_log.see("end")
+        worker_log.config(state="disabled")
 
-    def clear_log():
-        log_text.config(state="normal")
-        log_text.delete("1.0", "end")
-        log_text.config(state="disabled")
+    def clear_worker_log():
+        worker_log.config(state="normal")
+        worker_log.delete("1.0", "end")
+        worker_log.config(state="disabled")
 
     def make_args():
-        """Build a fake args namespace from GUI fields."""
         ns = argparse.Namespace()
         ns.profile = var_profile.get() or None
         ns.region = var_region.get() or None
@@ -652,10 +665,8 @@ def run_gui():
         ns.minutes = 60
         return ns
 
-    def run_in_thread(fn):
-        """Run a command in a background thread, capturing print output."""
-        import io
-        clear_log()
+    def run_in_thread(fn, log_widget, clear_fn):
+        clear_fn()
 
         def wrapper():
             old_stdout = sys.stdout
@@ -667,19 +678,195 @@ def run_gui():
             finally:
                 sys.stdout = old_stdout
                 output = buffer.getvalue()
-                # Strip ANSI codes for GUI
-                import re
                 clean = re.sub(r'\033\[[0-9;]*m', '', output)
-                root.after(0, lambda: log(clean))
+                root.after(0, lambda: _append_log(log_widget, clean))
 
         threading.Thread(target=wrapper, daemon=True).start()
 
-    ttk.Button(btn_frame, text="Deploy", command=lambda: run_in_thread(cmd_deploy)).pack(side="left", padx=3)
-    ttk.Button(btn_frame, text="Status", command=lambda: run_in_thread(cmd_status)).pack(side="left", padx=3)
-    ttk.Button(btn_frame, text="Logs", command=lambda: run_in_thread(cmd_logs)).pack(side="left", padx=3)
-    ttk.Button(btn_frame, text="Costs", command=lambda: run_in_thread(cmd_costs)).pack(side="left", padx=3)
-    ttk.Button(btn_frame, text="Teardown", command=lambda: run_in_thread(cmd_teardown)).pack(side="left", padx=3)
-    ttk.Button(btn_frame, text="Clear", command=clear_log).pack(side="right", padx=3)
+    def _append_log(widget, text):
+        widget.config(state="normal")
+        widget.insert("end", text + "\n")
+        widget.see("end")
+        widget.config(state="disabled")
+
+    ttk.Button(btn_frame, text="Deploy", command=lambda: run_in_thread(cmd_deploy, worker_log, clear_worker_log)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Status", command=lambda: run_in_thread(cmd_status, worker_log, clear_worker_log)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Logs", command=lambda: run_in_thread(cmd_logs, worker_log, clear_worker_log)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Costs", command=lambda: run_in_thread(cmd_costs, worker_log, clear_worker_log)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Teardown", command=lambda: run_in_thread(cmd_teardown, worker_log, clear_worker_log)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Clear", command=clear_worker_log).pack(side="right", padx=3)
+
+    # ═══════════════════════════════════════════════════════════
+    # TAB 2: Debug Pipelines
+    # ═══════════════════════════════════════════════════════════
+    debug_tab = ttk.Frame(notebook)
+    notebook.add(debug_tab, text="  Debug Pipelines  ")
+
+    # ─── Pipeline lookup frame ───
+    lookup_frame = ttk.LabelFrame(debug_tab, text="Pipeline Lookup", padding=10)
+    lookup_frame.pack(fill="x", padx=10, pady=5)
+
+    var_pipeline_id = tk.StringVar()
+    ttk.Label(lookup_frame, text="Pipeline ID:").grid(row=0, column=0, sticky="w", pady=2)
+    ttk.Entry(lookup_frame, textvariable=var_pipeline_id, width=45).grid(row=0, column=1, sticky="ew", pady=2, padx=(5, 0))
+    lookup_frame.columnconfigure(1, weight=1)
+
+    # ─── Debug buttons ───
+    debug_btn_frame = ttk.Frame(debug_tab, padding=5)
+    debug_btn_frame.pack(fill="x", padx=10)
+
+    # ─── Debug output ───
+    debug_log_frame = ttk.LabelFrame(debug_tab, text="Pipeline Info", padding=5)
+    debug_log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+    debug_log = scrolledtext.ScrolledText(debug_log_frame, height=15, font=("Courier", 10), state="disabled")
+    debug_log.pack(fill="both", expand=True)
+
+    def clear_debug_log():
+        debug_log.config(state="normal")
+        debug_log.delete("1.0", "end")
+        debug_log.config(state="disabled")
+
+    def debug_lookup_pipeline():
+        """Look up a pipeline by ID from CloudMR Brain."""
+        clear_debug_log()
+        pipeline_id = var_pipeline_id.get().strip()
+        email = var_email.get()
+        password = var_password.get()
+
+        if not pipeline_id:
+            _append_log(debug_log, "Enter a pipeline ID first.")
+            return
+
+        def worker():
+            try:
+                if not email or not password:
+                    print("Enter CloudMR email and password in the Worker tab first.")
+                    return
+
+                auth = brain_login(email, password)
+                token = auth["id_token"]
+                headers = {"Authorization": f"Bearer {token}"}
+
+                # Get pipeline info
+                print(f"Looking up pipeline: {pipeline_id}\n")
+
+                resp = requests.get(f"{BRAIN_API_URL}/api/pipeline/{pipeline_id}", headers=headers)
+                if resp.status_code != 200:
+                    print(f"Error: HTTP {resp.status_code}")
+                    print(resp.text[:500])
+                    return
+
+                data = resp.json()
+                # Handle the Brain's response format (can be [bool, response_obj] or dict)
+                if isinstance(data, list) and len(data) == 2:
+                    data = data[1] if isinstance(data[1], dict) else data[0]
+
+                if isinstance(data, dict) and "body" in data:
+                    try:
+                        data = json.loads(data["body"])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                print(f"{'─'*50}")
+                print(f"  Pipeline: {pipeline_id}")
+                if isinstance(data, dict):
+                    print(f"  Status:   {data.get('status', 'unknown')}")
+                    print(f"  Alias:    {data.get('alias', 'N/A')}")
+                    print(f"  Mode:     {data.get('mode', 'N/A')}")
+                    print(f"  Created:  {data.get('created_at', data.get('createdAt', 'N/A'))}")
+                    print(f"  Updated:  {data.get('updated_at', data.get('updatedAt', 'N/A'))}")
+                    output = data.get("output") or data.get("results")
+                    if output:
+                        print(f"  Output:   {output}")
+                    log_entries = data.get("log")
+                    if log_entries:
+                        print(f"\n  Log:")
+                        print(f"  {log_entries}")
+                else:
+                    print(f"  Response: {json.dumps(data, indent=2, default=str)[:1000]}")
+                print(f"{'─'*50}")
+
+            except Exception as e:
+                print(f"Error: {e}")
+
+        def run():
+            old_stdout = sys.stdout
+            sys.stdout = buffer = io.StringIO()
+            try:
+                worker()
+            finally:
+                sys.stdout = old_stdout
+                output = buffer.getvalue()
+                clean = re.sub(r'\033\[[0-9;]*m', '', output)
+                root.after(0, lambda: _append_log(debug_log, clean))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def debug_list_pipelines():
+        """List recent pipelines for the user."""
+        clear_debug_log()
+        email = var_email.get()
+        password = var_password.get()
+
+        def worker():
+            try:
+                if not email or not password:
+                    print("Enter CloudMR email and password in the Worker tab first.")
+                    return
+
+                auth = brain_login(email, password)
+                token = auth["id_token"]
+                headers = {"Authorization": f"Bearer {token}"}
+
+                print("Fetching your pipelines...\n")
+
+                # Get pipelines for MR Optimum
+                resp = requests.get(
+                    f"{BRAIN_API_URL}/api/pipeline/list/2e294eb9-3a48-44f5-a1f8-dfeb9ec1aaf1",
+                    headers=headers,
+                )
+                data = resp.json()
+                jobs = data.get("jobs", [])
+
+                if not jobs:
+                    print("No pipelines found.")
+                    return
+
+                # Sort by date, show most recent first
+                jobs.sort(key=lambda j: j.get("createdAt", ""), reverse=True)
+
+                print(f"{'Status':<12} {'Alias':<30} {'ID':<38} {'Date'}")
+                print(f"{'─'*12} {'─'*30} {'─'*38} {'─'*20}")
+                for j in jobs[:30]:
+                    status = j.get("status", "?")
+                    alias = (j.get("alias", "") or "")[:28]
+                    jid = j.get("id", "")
+                    date = (j.get("createdAt", "") or "")[:19]
+                    marker = "!" if "fail" in status.lower() else " "
+                    print(f"{marker}{status:<11} {alias:<30} {jid:<38} {date}")
+
+                print(f"\n  Total: {len(jobs)} pipelines")
+
+            except Exception as e:
+                print(f"Error: {e}")
+
+        def run():
+            old_stdout = sys.stdout
+            sys.stdout = buffer = io.StringIO()
+            try:
+                worker()
+            finally:
+                sys.stdout = old_stdout
+                output = buffer.getvalue()
+                clean = re.sub(r'\033\[[0-9;]*m', '', output)
+                root.after(0, lambda: _append_log(debug_log, clean))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    ttk.Button(debug_btn_frame, text="List Pipelines", command=debug_list_pipelines).pack(side="left", padx=3)
+    ttk.Button(debug_btn_frame, text="Lookup Pipeline", command=debug_lookup_pipeline).pack(side="left", padx=3)
+    ttk.Button(debug_btn_frame, text="Clear", command=clear_debug_log).pack(side="right", padx=3)
 
     root.mainloop()
 
