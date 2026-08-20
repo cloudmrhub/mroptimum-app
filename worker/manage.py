@@ -407,10 +407,14 @@ Commands:
   logs      View computation logs
   costs     Show cost estimates
   teardown  Delete everything (stop all costs)
+
+GUI mode:
+  python manage.py --gui     Opens a graphical interface (no CLI knowledge needed)
         """,
     )
-    parser.add_argument("command", choices=["deploy", "status", "logs", "costs", "teardown"],
-                        help="Command to run")
+    parser.add_argument("command", nargs="?", choices=["deploy", "status", "logs", "costs", "teardown"],
+                        help="Command to run (optional if --gui)")
+    parser.add_argument("--gui", "-g", action="store_true", help="Open graphical interface")
     parser.add_argument("--profile", "-p", help="AWS CLI profile")
     parser.add_argument("--region", "-r", help="AWS region")
     parser.add_argument("--email", "-e", help="CloudMR email (for deploy)")
@@ -423,6 +427,10 @@ Commands:
 
     args = parser.parse_args()
 
+    if args.gui or (not args.command):
+        run_gui()
+        return
+
     commands = {
         "deploy": cmd_deploy,
         "status": cmd_status,
@@ -432,6 +440,123 @@ Commands:
     }
 
     commands[args.command](args)
+
+
+# ═══════════════════════════════════════════════════════════════
+# GUI Mode (tkinter)
+# ═══════════════════════════════════════════════════════════════
+def run_gui():
+    """Simple tkinter GUI for non-expert users."""
+    try:
+        import tkinter as tk
+        from tkinter import ttk, scrolledtext, messagebox
+    except ImportError:
+        print("tkinter not available. Use CLI mode or install python3-tk.")
+        sys.exit(1)
+
+    import threading
+
+    root = tk.Tk()
+    root.title("MR Optimum — Mode 2 Worker Manager")
+    root.geometry("700x600")
+    root.resizable(True, True)
+
+    # ─── Variables ───
+    var_profile = tk.StringVar(value=os.environ.get("AWS_PROFILE", "default"))
+    var_region = tk.StringVar(value=DEFAULT_REGION)
+    var_email = tk.StringVar(value=os.environ.get("CLOUDMR_EMAIL", ""))
+    var_password = tk.StringVar(value=os.environ.get("CLOUDMR_PASSWORD", ""))
+    var_api_key = tk.StringVar(value="")
+    var_alias = tk.StringVar(value="My Cloud Worker")
+
+    # ─── Settings Frame ───
+    settings_frame = ttk.LabelFrame(root, text="Settings", padding=10)
+    settings_frame.pack(fill="x", padx=10, pady=5)
+
+    row = 0
+    for label, var, show in [
+        ("AWS Profile:", var_profile, None),
+        ("AWS Region:", var_region, None),
+        ("CloudMR Email:", var_email, None),
+        ("CloudMR Password:", var_password, "*"),
+        ("Worker API Key:", var_api_key, None),
+        ("Worker Alias:", var_alias, None),
+    ]:
+        ttk.Label(settings_frame, text=label).grid(row=row, column=0, sticky="w", pady=2)
+        entry = ttk.Entry(settings_frame, textvariable=var, width=45)
+        if show:
+            entry.config(show=show)
+        entry.grid(row=row, column=1, sticky="ew", pady=2, padx=(5, 0))
+        row += 1
+
+    settings_frame.columnconfigure(1, weight=1)
+
+    # ─── Buttons Frame ───
+    btn_frame = ttk.Frame(root, padding=5)
+    btn_frame.pack(fill="x", padx=10)
+
+    # ─── Log Output ───
+    log_frame = ttk.LabelFrame(root, text="Output", padding=5)
+    log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+    log_text = scrolledtext.ScrolledText(log_frame, height=15, font=("Courier", 10), state="disabled")
+    log_text.pack(fill="both", expand=True)
+
+    def log(msg):
+        log_text.config(state="normal")
+        log_text.insert("end", msg + "\n")
+        log_text.see("end")
+        log_text.config(state="disabled")
+
+    def clear_log():
+        log_text.config(state="normal")
+        log_text.delete("1.0", "end")
+        log_text.config(state="disabled")
+
+    def make_args():
+        """Build a fake args namespace from GUI fields."""
+        ns = argparse.Namespace()
+        ns.profile = var_profile.get() or None
+        ns.region = var_region.get() or None
+        ns.email = var_email.get() or None
+        ns.password = var_password.get() or None
+        ns.api_key = var_api_key.get() or None
+        ns.alias = var_alias.get() or None
+        ns.yes = True
+        ns.follow = False
+        ns.minutes = 60
+        return ns
+
+    def run_in_thread(fn):
+        """Run a command in a background thread, capturing print output."""
+        import io
+        clear_log()
+
+        def wrapper():
+            old_stdout = sys.stdout
+            sys.stdout = buffer = io.StringIO()
+            try:
+                fn(make_args())
+            except Exception as e:
+                print(f"\nError: {e}")
+            finally:
+                sys.stdout = old_stdout
+                output = buffer.getvalue()
+                # Strip ANSI codes for GUI
+                import re
+                clean = re.sub(r'\033\[[0-9;]*m', '', output)
+                root.after(0, lambda: log(clean))
+
+        threading.Thread(target=wrapper, daemon=True).start()
+
+    ttk.Button(btn_frame, text="Deploy", command=lambda: run_in_thread(cmd_deploy)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Status", command=lambda: run_in_thread(cmd_status)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Logs", command=lambda: run_in_thread(cmd_logs)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Costs", command=lambda: run_in_thread(cmd_costs)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Teardown", command=lambda: run_in_thread(cmd_teardown)).pack(side="left", padx=3)
+    ttk.Button(btn_frame, text="Clear", command=clear_log).pack(side="right", padx=3)
+
+    root.mainloop()
 
 
 if __name__ == "__main__":
