@@ -248,12 +248,16 @@ def do_process(event, context=None, s3=None):
         calculation_name=task_info.get("name", "N/A")
 
         # 6) If noise or signal == S3 type, download locally
+        #    If type == "local", files are already on disk (Mode 2 worker)
         recon_opts = task_info["options"]["reconstructor"]["options"]
         if "noise" in recon_opts:
             noise_opts = recon_opts["noise"]["options"]
             if noise_opts.get("type") == "s3":
                 download_from_s3(noise_opts, s3)
                 logger.write("noise file downloaded")
+                NOISE_AVAILABLE = True
+            elif noise_opts.get("type") == "local":
+                logger.write(f"noise file is local: {noise_opts.get('filename')}")
                 NOISE_AVAILABLE = True
         else:
             # If "noise" is not present, we skip this step
@@ -266,8 +270,12 @@ def do_process(event, context=None, s3=None):
                 logger.write("signal file downloaded")
                 SIGNAL_AVAILABLE = True
                 if signal_opts.get("vendor", "").lower() == "siemens":
-                    # If vendor is mroptimum, we can use the signal options directly
                     logger.write("signal vendor is mroptimum, using options directly")
+                    MULTIRAID = signal_opts.get("multiraid", False)
+            elif signal_opts.get("type") == "local":
+                logger.write(f"signal file is local: {signal_opts.get('filename')}")
+                SIGNAL_AVAILABLE = True
+                if signal_opts.get("vendor", "").lower() == "siemens":
                     MULTIRAID = signal_opts.get("multiraid", False)
         else:
             # If "signal" is not present, we skip this step
