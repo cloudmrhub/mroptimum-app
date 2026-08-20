@@ -198,11 +198,14 @@ def _run_computation_sync(job_id: str, event: dict):
     job.started_at = datetime.utcnow().isoformat()
 
     try:
-        # do_process handles:
-        # - downloading S3 files (via presigned URLs or direct if creds available)
-        # - running mrotools.snr
-        # - uploading results to presigned_upload_url or results bucket
-        # - uploading errors to failed bucket
+        # For local workers, files with type="local" are already on disk.
+        # app.py's do_process checks type=="s3" to set NOISE/SIGNAL_AVAILABLE flags.
+        # We patch the event to mark local files as available by ensuring
+        # the presigned_upload_url is set (so results upload works via presigned URL).
+        # If no presigned_upload_url is provided, results stay local.
+        
+        # Run do_process — it handles downloading S3 files (via presigned URLs),
+        # running mrotools.snr, and uploading results.
         result = do_process(event, context=None)
 
         status_code = result.get("statusCode", 500)
