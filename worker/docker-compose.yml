@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  mroptimum-worker:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      # Required: your API key (Brain sends this to authenticate requests)
+      - WORKER_API_KEY=${WORKER_API_KEY:-}
+      # Required: CloudMR Brain URL (for reporting results back)
+      - BRAIN_API_URL=${BRAIN_API_URL:-https://brain.aws.cloudmrhub.com/Prod}
+      # Required: your CloudMR token (for the callback to Brain)
+      - BRAIN_TOKEN=${BRAIN_TOKEN:-}
+      # Optional: friendly name for this worker
+      - WORKER_ID=${WORKER_ID:-local-worker}
+      # Optional: how many jobs to run in parallel (default: 2)
+      - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-2}
+      # Optional: AWS credentials if using S3 directly (not presigned URLs)
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      # Persist tmp for large data files between restarts
+      - mroptimum-tmp:/tmp
+    restart: unless-stopped
+
+volumes:
+  mroptimum-tmp:
