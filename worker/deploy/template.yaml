@@ -1,0 +1,322 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  MR Optimum Worker — Mode 2 (Zero-Cost at Idle)
+  API Gateway + Lambda dispatcher + Fargate RunTask.
+  Idle cost: $0. You only pay when a job runs.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for Fargate tasks
+
+  SubnetId1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First public subnet (needs internet for ECR pull + S3)
+
+  SubnetId2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second public subnet
+
+  WorkerApiKey:
+    Type: String
+    NoEcho: true
+    Description: API key that Brain uses to authenticate requests
+
+  WorkerImageUri:
+    Type: String
+    Description: Docker image URI for the compute task
+    Default: "469266894233.dkr.ecr.us-east-1.amazonaws.com/mroptimum-fargate:latest"
+
+  BrainApiUrl:
+    Type: String
+    Default: "https://f41j488v7j.execute-api.us-east-1.amazonaws.com/Prod"
+    Description: CloudMR Brain API URL (for result callbacks)
+
+  BrainToken:
+    Type: String
+    NoEcho: true
+    Description: CloudMR ID token for reporting results back to Brain
+    Default: ""
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+
+Resources:
+
+  # ═══════════════════════════════════════════════════════════════
+  # 1) API Gateway — public endpoint, zero cost when idle
+  # ═══════════════════════════════════════════════════════════════
+  WorkerApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Description: "MR Optimum Mode 2 Worker API"
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,X-API-Key,Authorization'"
+        AllowMethods: "'GET,POST,OPTIONS'"
+
+  # ═══════════════════════════════════════════════════════════════
+  # 2) Lambda Dispatcher — validates request, launches Fargate task
+  # ═══════════════════════════════════════════════════════════════
+  DispatcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      InlineCode: |
+        import json
+        import os
+        import boto3
+        import uuid
+
+        ecs = boto3.client("ecs")
+
+        CLUSTER = os.environ["CLUSTER_NAME"]
+        TASK_DEF = os.environ["TASK_DEFINITION"]
+        SUBNETS = json.loads(os.environ["SUBNETS"])
+        SECURITY_GROUP = os.environ["SECURITY_GROUP"]
+        API_KEY = os.environ.get("WORKER_API_KEY", "")
+
+        def handler(event, context):
+            # --- Health check ---
+            if event.get("httpMethod") == "GET" and event.get("path") == "/health":
+                return {
+                    "statusCode": 200,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps({
+                        "status": "ok",
+                        "type": "fargate-on-demand",
+                        "cluster": CLUSTER,
+                    })
+                }
+
+            # --- Auth ---
+            headers = event.get("headers") or {}
+            # API Gateway lowercases headers
+            request_key = headers.get("x-api-key") or headers.get("X-API-Key") or ""
+            if API_KEY and request_key != API_KEY:
+                return {
+                    "statusCode": 401,
+                    "body": json.dumps({"error": "Invalid API key"})
+                }
+
+            # --- Parse body ---
+            try:
+                body = json.loads(event.get("body", "{}"))
+            except Exception:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({"error": "Invalid JSON body"})
+                }
+
+            # --- Launch Fargate task ---
+            job_id = str(uuid.uuid4())
+            
+            # Pass the full job payload as FILE_EVENT env var
+            # (same format app.py expects in Fargate mode)
+            file_event = json.dumps(body)
+
+            try:
+                response = ecs.run_task(
+                    cluster=CLUSTER,
+                    taskDefinition=TASK_DEF,
+                    launchType="FARGATE",
+                    networkConfiguration={
+                        "awsvpcConfiguration": {
+                            "subnets": SUBNETS,
+                            "securityGroups": [SECURITY_GROUP],
+                            "assignPublicIp": "ENABLED"
+                        }
+                    },
+                    overrides={
+                        "containerOverrides": [{
+                            "name": "worker",
+                            "environment": [
+                                {"name": "FILE_EVENT", "value": file_event}
+                            ]
+                        }]
+                    }
+                )
+
+                task_arn = response["tasks"][0]["taskArn"] if response.get("tasks") else None
+                failures = response.get("failures", [])
+
+                if failures:
+                    return {
+                        "statusCode": 500,
+                        "body": json.dumps({
+                            "error": "Failed to launch task",
+                            "failures": failures
+                        })
+                    }
+
+                return {
+                    "statusCode": 202,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps({
+                        "status": "accepted",
+                        "job_id": job_id,
+                        "task_arn": task_arn,
+                        "pipeline": body.get("pipeline"),
+                        "message": "Job accepted, Fargate task launching"
+                    })
+                }
+
+            except Exception as e:
+                return {
+                    "statusCode": 500,
+                    "body": json.dumps({"error": str(e)})
+                }
+
+      Environment:
+        Variables:
+          CLUSTER_NAME: !Ref WorkerCluster
+          TASK_DEFINITION: !Ref WorkerTaskDefinition
+          SUBNETS: !Sub '["${SubnetId1}","${SubnetId2}"]'
+          SECURITY_GROUP: !Ref FargateSecurityGroup
+          WORKER_API_KEY: !Ref WorkerApiKey
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ecs:RunTask
+              Resource: !Ref WorkerTaskDefinition
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource:
+                - !GetAtt TaskExecutionRole.Arn
+                - !GetAtt TaskRole.Arn
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            RestApiId: !Ref WorkerApi
+            Path: /health
+            Method: GET
+        Compute:
+          Type: Api
+          Properties:
+            RestApiId: !Ref WorkerApi
+            Path: /compute
+            Method: POST
+
+  # ═══════════════════════════════════════════════════════════════
+  # 3) Security Group for Fargate tasks (outbound only)
+  # ═══════════════════════════════════════════════════════════════
+  FargateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MR Optimum worker Fargate tasks (outbound for S3/ECR)
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # ═══════════════════════════════════════════════════════════════
+  # 4) ECS Cluster
+  # ═══════════════════════════════════════════════════════════════
+  WorkerCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${AWS::StackName}-cluster"
+
+  # ═══════════════════════════════════════════════════════════════
+  # 5) IAM Roles
+  # ═══════════════════════════════════════════════════════════════
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: WorkerS3Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: "*"
+
+  # ═══════════════════════════════════════════════════════════════
+  # 6) Log Group
+  # ═══════════════════════════════════════════════════════════════
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${AWS::StackName}"
+      RetentionInDays: 7
+
+  # ═══════════════════════════════════════════════════════════════
+  # 7) ECS Task Definition (one-shot Fargate task)
+  # ═══════════════════════════════════════════════════════════════
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${AWS::StackName}-task"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "4096"
+      Memory: "16384"
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: worker
+          Image: !Ref WorkerImageUri
+          Essential: true
+          Environment:
+            - Name: MPLCONFIGDIR
+              Value: /tmp/.matplotlib
+            - Name: ResultsBucketName
+              Value: ""
+            - Name: FailedBucketName
+              Value: ""
+            - Name: DEBUG
+              Value: "false"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: task
+
+Outputs:
+  WorkerEndpoint:
+    Description: "Public URL of the worker — register this with CloudMR Brain"
+    Value: !Sub "https://${WorkerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+
+  HealthEndpoint:
+    Description: "Health check URL"
+    Value: !Sub "https://${WorkerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/health"
+
+  ComputeEndpoint:
+    Description: "Compute endpoint URL"
+    Value: !Sub "https://${WorkerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/compute"
