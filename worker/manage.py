@@ -22,6 +22,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -100,8 +101,7 @@ def cmd_deploy(args):
     region = args.region or prompt("AWS region", DEFAULT_REGION)
     email = args.email or prompt("CloudMR email")
     password = args.password or prompt("CloudMR password", secret=True)
-    api_key = args.api_key or prompt("Choose an API key for your worker (any secret string)",
-                                     f"mroptimum-{email.split('@')[0]}-2026")
+    api_key = args.api_key or f"mro-{uuid.uuid4().hex[:16]}"
 
     # Login to Brain
     print(f"\n{color('[1/5]', 'bold')} Logging in to CloudMR Brain...")
@@ -479,7 +479,6 @@ def run_gui():
         ("AWS Region:", var_region, None),
         ("CloudMR Email:", var_email, None),
         ("CloudMR Password:", var_password, "*"),
-        ("Worker API Key:", var_api_key, None),
         ("Worker Alias:", var_alias, None),
     ]:
         ttk.Label(settings_frame, text=label).grid(row=row, column=0, sticky="w", pady=2)
