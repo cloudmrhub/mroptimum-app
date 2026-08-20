@@ -430,7 +430,7 @@ def cmd_costs(args):
 
 
 def cmd_teardown(args):
-    """Delete the stack — stops all costs."""
+    """Delete the stack and deregister from CloudMR Brain — stops all costs."""
     cfg = load_config()
     profile = args.profile or cfg.get("profile", os.environ.get("AWS_PROFILE", "default"))
     region = args.region or cfg.get("region", DEFAULT_REGION)
@@ -453,7 +453,48 @@ def cmd_teardown(args):
             print("  Cancelled.")
             return
 
-    print("  Deleting stack...")
+    # Deregister from CloudMR Brain
+    print("  Deregistering from CloudMR Brain...")
+    email = args.email or cfg.get("email")
+    password = args.password
+    if email and not password:
+        password = prompt("CloudMR password (to deregister)", secret=True)
+
+    if email and password:
+        try:
+            auth = brain_login(email, password)
+            token = auth["id_token"]
+
+            # Find our computing unit by endpoint
+            endpoint = cfg.get("endpoint") or outputs.get("WorkerEndpoint", "")
+            resp = requests.get(
+                f"{BRAIN_API_URL}/api/computing-unit/list",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"app_name": "MR Optimum"},
+            )
+            units = resp.json().get("computingUnits", [])
+            our_unit = next((u for u in units if u.get("apiEndpoint") == endpoint), None)
+
+            if our_unit:
+                cu_id = our_unit["computingUnitId"]
+                resp = requests.post(
+                    f"{BRAIN_API_URL}/api/computing-unit/delete",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"computingUnitId": cu_id},
+                )
+                if resp.status_code == 200:
+                    print(color(f"  Deregistered: {our_unit.get('alias')} ({cu_id})", "green"))
+                else:
+                    print(color(f"  Warning: deregister failed ({resp.status_code})", "yellow"))
+            else:
+                print(color("  No matching unit found in Brain (already removed?)", "yellow"))
+        except Exception as e:
+            print(color(f"  Warning: could not deregister: {e}", "yellow"))
+    else:
+        print(color("  Skipping deregistration (no credentials).", "yellow"))
+
+    # Delete the CloudFormation stack
+    print("  Deleting CloudFormation stack...")
     cf = session.client("cloudformation")
     cf.delete_stack(StackName=STACK_NAME)
 
@@ -461,6 +502,12 @@ def cmd_teardown(args):
     waiter = cf.get_waiter("stack_delete_complete")
     waiter.wait(StackName=STACK_NAME, WaiterConfig={"Delay": 10, "MaxAttempts": 30})
     print(color("  ✓ Stack deleted. All costs stopped.", "green"))
+
+    # Clean up local config
+    if CONFIG_PATH.exists():
+        CONFIG_PATH.unlink()
+        print(f"  Config removed: {CONFIG_PATH}")
+
     print()
 
 
