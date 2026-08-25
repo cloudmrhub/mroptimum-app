@@ -5,5 +5,5 @@ boto3
 numpy
 jsonpickle
 pynico_eros_montin @ git+https://github.com/erosmontin/pynico.git@v2
-mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git@v3.0.1
+mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git@v3.1.0
 cmtools @ git+https://github.com/cloudmrhub/cloudmr-tools.git
