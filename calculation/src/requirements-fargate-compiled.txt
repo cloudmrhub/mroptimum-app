@@ -70,7 +70,7 @@ matplotlib==3.10.7
     #   pyable-eros-montin
     #   twixtools
     #   vtk
-mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git@v3.0.1
+mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git@v3.1.0
     # via -r requirements.in
 networkx==3.4.2
     # via scikit-image

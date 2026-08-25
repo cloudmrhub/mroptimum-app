@@ -24,7 +24,7 @@ kiwisolver==1.4.9
 lazy_loader==0.4
 MarkupSafe==3.0.2
 matplotlib==3.10.6
-mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git@v3.0.1
+mrotools @ git+https://github.com/cloudmrhub/mroptimum-tools.git@v3.1.0
 networkx==3.4.2
 numpy==2.2.6
 packaging==25.0
