@@ -16,6 +16,9 @@ env:
   AWS_REGION: us-east-1
   LAMBDA_REPO: mroptimum-lambda
   FARGATE_REPO: mroptimum-fargate
+  PUBLIC_ECR_ALIAS: r2m7t0q6
+  PUBLIC_FARGATE_REPO: public.ecr.aws/r2m7t0q6/cloudmrhub/mroptimum-fargate
+  PUBLIC_LAMBDA_REPO: public.ecr.aws/r2m7t0q6/cloudmrhub/mroptimum-lambda
 
 permissions:
   id-token: write
@@ -104,6 +107,41 @@ jobs:
           echo "✓ Images built and pushed successfully"
           echo "Lambda:  ${LAMBDA_URI}:latest"
           echo "Fargate: ${FARGATE_URI}:latest"
+
+      - name: Push to Public ECR (Mode 2 / local / SLURM / other clouds)
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          # Extract mrotools semver from requirements (e.g. @v3.1.0 → v3.1.0)
+          MROTOOLS_TAG=$(grep -oP '(?<=@v)[\d.]+' calculation/src/requirements-fargate-compiled.txt | head -1)
+          MROTOOLS_TAG="v${MROTOOLS_TAG}"
+          echo "mrotools version tag: ${MROTOOLS_TAG}"
+
+          # Login to public ECR (always us-east-1)
+          aws ecr-public get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin public.ecr.aws
+
+          # Tag and push Fargate image
+          docker tag ${FARGATE_REPO}:${IMAGE_TAG} ${PUBLIC_FARGATE_REPO}:${MROTOOLS_TAG}
+          docker tag ${FARGATE_REPO}:${IMAGE_TAG} ${PUBLIC_FARGATE_REPO}:latest
+          docker push ${PUBLIC_FARGATE_REPO}:${MROTOOLS_TAG}
+          docker push ${PUBLIC_FARGATE_REPO}:latest
+
+          # Tag and push Lambda image
+          docker tag ${LAMBDA_REPO}:${IMAGE_TAG} ${PUBLIC_LAMBDA_REPO}:${MROTOOLS_TAG}
+          docker tag ${LAMBDA_REPO}:${IMAGE_TAG} ${PUBLIC_LAMBDA_REPO}:latest
+          docker push ${PUBLIC_LAMBDA_REPO}:${MROTOOLS_TAG}
+          docker push ${PUBLIC_LAMBDA_REPO}:latest
+
+          echo "✓ Public ECR push complete"
+          echo "  Fargate: ${PUBLIC_FARGATE_REPO}:${MROTOOLS_TAG}"
+          echo "  Lambda:  ${PUBLIC_LAMBDA_REPO}:${MROTOOLS_TAG}"
+          echo ""
+          echo "Pull anywhere (no auth needed):"
+          echo "  docker run ${PUBLIC_FARGATE_REPO}:${MROTOOLS_TAG}"
+          echo "  singularity pull docker://${PUBLIC_FARGATE_REPO}:${MROTOOLS_TAG}"
 
       - name: Print Build Summary
         run: |
