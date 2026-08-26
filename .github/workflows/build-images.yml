@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - mode1_mode2
+      - dev
     paths:
       - 'calculation/src/**'
       - 'calculation/Dockerfile*'
@@ -109,6 +109,7 @@ jobs:
           echo "Fargate: ${FARGATE_URI}:latest"
 
       - name: Push to Public ECR (Mode 2 / local / SLURM / other clouds)
+        if: github.ref == 'refs/heads/main'
         env:
           IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
         run: |

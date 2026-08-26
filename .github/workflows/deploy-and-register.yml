@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - mode1_mode2
+      - dev
     paths:
       - 'template.yaml'
       - 'calculation/template.yaml'
@@ -17,11 +17,7 @@ on:
       - completed
     branches:
       - main
-      - mode1_mode2
-
-  workflow_dispatch:
-    inputs:
-      force_rebuild:
+      - dev
         description: 'Force rebuild images even if no calculation/ changes'
         required: false
         default: false
@@ -34,7 +30,8 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  STACK_NAME: mroptimum-app-test
+  # main → prod stack (mroptimum-app-test), dev → dev stack (mroptimum-app-dev)
+  STACK_NAME: ${{ github.ref == 'refs/heads/main' && 'mroptimum-app-test' || 'mroptimum-app-dev' }}
   CLOUDMR_BRAIN_STACK: cloudmrhub-brain
   LAMBDA_REPO: mroptimum-lambda
   FARGATE_REPO: mroptimum-fargate
