@@ -25,7 +25,7 @@ Parameters:
 
   WorkerImageUri:
     Type: String
-    Description: Docker image URI for the compute task
+    Description: Immutable Docker image URI for the compute task (manager resolves tags to digests)
     Default: "public.ecr.aws/r2m7t0q6/cloudmrhub/mroptimum-fargate:latest"
 
   BrainApiUrl:
@@ -48,6 +48,27 @@ Globals:
       - x86_64
 
 Resources:
+
+  # Job payloads are staged in the user's account so ECS overrides stay small
+  # and the compute container never depends on cross-account S3 permissions.
+  JobPayloadBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireJobPayloads
+            Status: Enabled
+            Prefix: jobs/
+            ExpirationInDays: 1
 
   # ═══════════════════════════════════════════════════════════════
   # 1) API Gateway — public endpoint, zero cost when idle
@@ -76,9 +97,11 @@ Resources:
         import uuid
 
         ecs = boto3.client("ecs")
+        s3 = boto3.client("s3")
 
         CLUSTER = os.environ["CLUSTER_NAME"]
         TASK_DEF = os.environ["TASK_DEFINITION"]
+        JOB_BUCKET = os.environ["JOB_PAYLOAD_BUCKET"]
         SUBNETS = json.loads(os.environ["SUBNETS"])
         SECURITY_GROUP = os.environ["SECURITY_GROUP"]
         API_KEY = os.environ.get("WORKER_API_KEY", "")
@@ -118,11 +141,21 @@ Resources:
             # --- Launch Fargate task ---
             job_id = str(uuid.uuid4())
             
-            # Pass the full job payload as FILE_EVENT env var
-            # (same format app.py expects in Fargate mode)
-            file_event = json.dumps(body)
+            # Persist the complete request in this account and pass only the
+            # small S3 reference to ECS. This avoids the 8192-character ECS
+            # container-overrides limit regardless of job complexity.
+            pipeline_id = body.get("pipeline") or "unknown"
+            job_key = f"jobs/{pipeline_id}/{job_id}.json"
 
             try:
+                s3.put_object(
+                    Bucket=JOB_BUCKET,
+                    Key=job_key,
+                    Body=json.dumps(body, separators=(",", ":")).encode("utf-8"),
+                    ContentType="application/json",
+                    ServerSideEncryption="AES256",
+                )
+
                 response = ecs.run_task(
                     cluster=CLUSTER,
                     taskDefinition=TASK_DEF,
@@ -138,7 +171,8 @@ Resources:
                         "containerOverrides": [{
                             "name": "worker",
                             "environment": [
-                                {"name": "FILE_EVENT", "value": file_event}
+                                {"name": "JOB_BUCKET", "value": JOB_BUCKET},
+                                {"name": "JOB_KEY", "value": job_key}
                             ]
                         }]
                     }
@@ -178,6 +212,7 @@ Resources:
         Variables:
           CLUSTER_NAME: !Ref WorkerCluster
           TASK_DEFINITION: !Ref WorkerTaskDefinition
+          JOB_PAYLOAD_BUCKET: !Ref JobPayloadBucket
           SUBNETS: !Sub '["${SubnetId1}","${SubnetId2}"]'
           SECURITY_GROUP: !Ref FargateSecurityGroup
           WORKER_API_KEY: !Ref WorkerApiKey
@@ -188,6 +223,10 @@ Resources:
               Action:
                 - ecs:RunTask
               Resource: !Ref WorkerTaskDefinition
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub "${JobPayloadBucket.Arn}/jobs/*"
             - Effect: Allow
               Action:
                 - iam:PassRole
@@ -207,6 +246,103 @@ Resources:
             RestApiId: !Ref WorkerApi
             Path: /compute
             Method: POST
+
+  # ECS can accept RunTask and then fail before the image starts (for example,
+  # an image-pull or networking error). In that case the container cannot write
+  # its own failure artifact, so this stopped-task watcher writes a small marker
+  # through the dedicated presigned URL supplied by Brain.
+  TaskFailureReporterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.handler
+      InlineCode: |
+        import io
+        import json
+        import urllib.request
+        import zipfile
+
+        import boto3
+
+        ecs = boto3.client("ecs")
+        s3 = boto3.client("s3")
+
+        def handler(event, context):
+            detail = event.get("detail", {})
+            containers = detail.get("containers", [])
+            if containers and all(container.get("exitCode") == 0 for container in containers):
+                return {"reported": False, "reason": "successful task"}
+
+            cluster_arn = detail["clusterArn"]
+            task_arn = detail["taskArn"]
+            response = ecs.describe_tasks(cluster=cluster_arn, tasks=[task_arn])
+            task = response["tasks"][0]
+
+            environment = {}
+            for override in task.get("overrides", {}).get("containerOverrides", []):
+                for item in override.get("environment", []):
+                    environment[item["name"]] = item["value"]
+
+            job_bucket = environment.get("JOB_BUCKET")
+            job_key = environment.get("JOB_KEY")
+            if not job_bucket or not job_key:
+                return {"reported": False, "reason": "job reference unavailable"}
+
+            job_object = s3.get_object(Bucket=job_bucket, Key=job_key)
+            job = json.loads(job_object["Body"].read())
+            status_url = job.get("presigned_failure_status_upload_url")
+            if not status_url:
+                return {"reported": False, "reason": "status URL unavailable"}
+
+            reasons = [detail.get("stoppedReason", "ECS task stopped")]
+            reasons.extend(
+                container.get("reason", "") for container in containers if container.get("reason")
+            )
+            reason = "; ".join(reasons)[:4000]
+            info = {
+                "headers": {
+                    "options": {
+                        "pipelineid": job.get("pipeline"),
+                        "alias": job.get("alias", "unknown"),
+                    },
+                    "log": [{"type": "ERROR", "what": reason}],
+                },
+                "user_id": job.get("user_id", "unknown"),
+            }
+
+            archive_buffer = io.BytesIO()
+            with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("info.json", json.dumps(info))
+                archive.writestr("ecs_error.json", json.dumps(detail, default=str))
+
+            request = urllib.request.Request(
+                status_url,
+                data=archive_buffer.getvalue(),
+                method="PUT",
+            )
+            with urllib.request.urlopen(request, timeout=60) as upload_response:
+                upload_response.read()
+            return {"reported": True, "pipeline": job.get("pipeline")}
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref JobPayloadBucket
+        - Statement:
+            - Effect: Allow
+              Action: ecs:DescribeTasks
+              Resource: "*"
+      Events:
+        TaskStopped:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - aws.ecs
+              detail-type:
+                - ECS Task State Change
+              detail:
+                clusterArn:
+                  - !GetAtt WorkerCluster.Arn
+                lastStatus:
+                  - STOPPED
 
   # ═══════════════════════════════════════════════════════════════
   # 3) Security Group for Fargate tasks (outbound only)
@@ -320,3 +456,7 @@ Outputs:
   ComputeEndpoint:
     Description: "Compute endpoint URL"
     Value: !Sub "https://${WorkerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/compute"
+
+  JobPayloadBucketName:
+    Description: "Short-lived storage for staged Mode 2 job payloads"
+    Value: !Ref JobPayloadBucket

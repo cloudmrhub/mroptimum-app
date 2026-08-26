@@ -59,9 +59,39 @@ def build_debug_bundle(event):
         user_id = event.get("user_id", "unknown")
         task_name = task.get("name", "?")
         recon_name = task.get("options", {}).get("reconstructor", {}).get("name", "?")
-        compute_error = event.get("computeError", {})
+        compute_error = event.get("computeError") or event.get("fargateError") or {}
 
         print(f"Building debug bundle: pipeline={pipeline_id} alias={alias} task={task_name}/{recon_name}")
+
+        # Publish pipeline status before doing any expensive debug collection.
+        # Even if a multi-GB input exhausts this Lambda's disk or timeout, Brain
+        # receives a tiny standard artifact and the frontend leaves queued state.
+        bucket = FAILED_BUCKET
+        failure_info = {
+            "headers": {
+                "options": {
+                    "pipelineid": pipeline_id,
+                    "alias": alias,
+                },
+                "log": [
+                    {
+                        "type": "ERROR",
+                        "what": str(compute_error.get("Cause", compute_error))[:4000],
+                    }
+                ],
+            },
+            "user_id": user_id,
+        }
+        status_zip_path = work_dir / "failure_status.zip"
+        with zipfile.ZipFile(status_zip_path, "w", zipfile.ZIP_DEFLATED) as status_zip:
+            status_zip.writestr("info.json", json.dumps(failure_info, indent=2))
+            status_zip.writestr(
+                "error_info.json", json.dumps(compute_error, indent=2, default=str)
+            )
+
+        status_key = f"MR Optimum/{user_id}/{uuid.uuid4()}.zip"
+        s3_client.upload_file(str(status_zip_path), bucket, status_key)
+        print(f"  Failure status marker: s3://{bucket}/{status_key}")
 
         # Prepare bundle directory
         bundle_dir = work_dir / "bundle"
@@ -192,7 +222,6 @@ python -m mrotools.snr \\
         print(f"  Bundle: {bundle_size_mb:.1f} MB")
 
         # 7) Upload to debug-bundles/ in the failed bucket
-        bucket = FAILED_BUCKET
         debug_key = f"debug-bundles/{pipeline_id}.zip"
         s3_client.upload_file(str(bundle_zip_path), bucket, debug_key)
         print(f"  Uploaded: s3://{bucket}/{debug_key}")
@@ -233,6 +262,7 @@ python -m mrotools.snr \\
         return {
             "success": True,
             "bundle": f"s3://{bucket}/{debug_key}",
+            "status_marker": f"s3://{bucket}/{status_key}",
             "size_mb": round(bundle_size_mb, 1),
         }
 

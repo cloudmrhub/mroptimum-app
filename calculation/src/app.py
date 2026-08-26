@@ -117,6 +117,40 @@ def parse_s3_url(presigned_url):
     return bucket_name, object_key
 
 
+def load_job_from_environment(s3_client=None):
+    """Load the Fargate job payload from a small external reference.
+
+    Mode 1 and Mode 2 stage the complete job JSON in an account-local S3
+    bucket and pass only ``JOB_BUCKET`` and ``JOB_KEY`` through ECS container
+    overrides. ``JOB_URL`` supports other clouds and legacy cross-account
+    deployments. ``FILE_EVENT`` remains as a rollout compatibility fallback.
+    """
+    job_bucket = os.environ.get("JOB_BUCKET")
+    job_key = os.environ.get("JOB_KEY")
+    if job_bucket or job_key:
+        if not job_bucket or not job_key:
+            raise RuntimeError("JOB_BUCKET and JOB_KEY must be provided together")
+        if s3_client is None:
+            s3_client = boto3.client("s3")
+        response = s3_client.get_object(Bucket=job_bucket, Key=job_key)
+        raw_payload = response["Body"].read()
+        if isinstance(raw_payload, bytes):
+            raw_payload = raw_payload.decode("utf-8")
+        return json.loads(raw_payload)
+
+    if job_url := os.environ.get("JOB_URL"):
+        response = requests.get(job_url, timeout=60)
+        response.raise_for_status()
+        return response.json()
+
+    if event_str := os.environ.get("FILE_EVENT"):
+        return json.loads(event_str)
+
+    raise RuntimeError(
+        "No job payload configured; expected JOB_BUCKET/JOB_KEY, JOB_URL, or FILE_EVENT"
+    )
+
+
 def do_process(event, context=None, s3=None):
     global logger
     """
@@ -136,6 +170,13 @@ def do_process(event, context=None, s3=None):
 
     # Initialize logging
     logger = PrintingLogger("mroptimum job", {"event": event, "context": context or {}})
+
+    # Keep the failure path valid even if input loading/parsing fails before
+    # these values would normally be extracted from the job.
+    info_json = event if isinstance(event, dict) else {}
+    pipelineid = info_json.get("pipeline")
+    token = info_json.get("token")
+    user_id = info_json.get("user_id", "unknown")
 
     try:
         # Prepare S3 resource
@@ -399,7 +440,7 @@ def do_process(event, context=None, s3=None):
             result = requests.put(presigned_url, data=open(zip_path, "rb"))
             result.raise_for_status()
             logger.write(f"uploaded zip to {presigned_url}")
-            key, result_bucket = parse_s3_url(presigned_url)
+            result_bucket, key = parse_s3_url(presigned_url)
         else:
             # 13) Upload zip to the "results" bucket
             key = f"MR Optimum/{user_id}/{zip_path.name}"
@@ -477,11 +518,22 @@ def do_process(event, context=None, s3=None):
         )
         logger.write(f"zipped failure bundle to {zip_fail_path}")
 
-        # 6) Upload to the "failed" bucket
+        # 6) Upload to the failed destination. Mode 2 cannot write directly to
+        #    the Brain account, so Brain supplies a presigned failure URL.
         try:
-            key = f"MR Optimum/{user_id}/{zip_fail_path.name}"
-            s3.Bucket(failed_bucket).upload_file(str(zip_fail_path), key)
-            logger.write(f"uploaded failed bundle → s3://{failed_bucket}/{key}")
+            failure_url = None
+            if isinstance(info_json, dict):
+                failure_url = info_json.get("presigned_failure_upload_url")
+
+            if failure_url:
+                with open(zip_fail_path, "rb") as failure_file:
+                    response = requests.put(failure_url, data=failure_file, timeout=300)
+                response.raise_for_status()
+                logger.write("uploaded failed bundle using presigned URL")
+            else:
+                key = f"MR Optimum/{user_id}/{zip_fail_path.name}"
+                s3.Bucket(failed_bucket).upload_file(str(zip_fail_path), key)
+                logger.write(f"uploaded failed bundle → s3://{failed_bucket}/{key}")
         except Exception as upload_err:
             traceback.print_exc()
             print(f"Failed to upload to failed bucket: {upload_err}")
@@ -510,18 +562,14 @@ def handler(event, context, s3=None):
 def main():
     """
     Fargate/Step Functions entry point.
-    Expects the raw S3-trigger JSON to be passed in via the FILE_EVENT environment variable.
+    Loads the job from JOB_BUCKET/JOB_KEY (preferred), JOB_URL, or the legacy
+    FILE_EVENT environment variable.
     Exits with code 0 on success, or 1 on failure.
     """
-    event_str = os.environ.get("FILE_EVENT")
-    if not event_str:
-        print("No FILE_EVENT provided. Exiting.")
-        sys.exit(1)
-
     try:
-        event = json.loads(event_str)
+        event = load_job_from_environment()
     except Exception as e:
-        print(f"Invalid JSON in FILE_EVENT: {e}")
+        print(f"Could not load job payload: {e}")
         sys.exit(1)
 
     result = do_process(event, context=None)

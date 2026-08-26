@@ -18,6 +18,7 @@ Requirements:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -78,7 +79,15 @@ def load_config():
     return config
 
 
-def save_config(profile=None, region=None, email=None, alias=None, endpoint=None, api_key=None):
+def save_config(
+    profile=None,
+    region=None,
+    email=None,
+    alias=None,
+    endpoint=None,
+    api_key=None,
+    image_uri=None,
+):
     """Save config to ~/.mroptimum/config.toml after successful deploy."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -99,6 +108,8 @@ def save_config(profile=None, region=None, email=None, alias=None, endpoint=None
         lines.append(f'endpoint = "{endpoint}"')
     if api_key:
         lines.append(f'api_key = "{api_key}"')
+    if image_uri:
+        lines.append(f'image_uri = "{image_uri}"')
     lines.append("")
 
     CONFIG_PATH.write_text("\n".join(lines))
@@ -147,6 +158,64 @@ def prompt(text, default=None, secret=False):
     return val.strip() or default
 
 
+def resolve_public_image_digest(image_uri, http_get=None):
+    """Resolve a public ECR tag to an immutable manifest digest.
+
+    CloudFormation cannot see when a mutable ``:latest`` tag changes. Passing
+    the digest creates a new ECS task definition on every real image release
+    and guarantees that Mode 2 runs the exact manifest selected at update time.
+    """
+    if "@sha256:" in image_uri:
+        return image_uri
+    if not image_uri.startswith("public.ecr.aws/"):
+        return image_uri
+
+    if http_get is None:
+        http_get = requests.get
+
+    registry_prefix = "public.ecr.aws/"
+    reference = image_uri[len(registry_prefix):]
+    last_segment = reference.rsplit("/", 1)[-1]
+    if ":" in last_segment:
+        repository, tag = reference.rsplit(":", 1)
+        base_uri = image_uri.rsplit(":", 1)[0]
+    else:
+        repository, tag = reference, "latest"
+        base_uri = image_uri
+
+    token_response = http_get(
+        "https://public.ecr.aws/token/",
+        params={
+            "service": "public.ecr.aws",
+            "scope": f"repository:{repository}:pull",
+        },
+        timeout=30,
+    )
+    token_response.raise_for_status()
+    token = token_response.json()["token"]
+
+    manifest_response = http_get(
+        f"https://public.ecr.aws/v2/{repository}/manifests/{tag}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": ", ".join(
+                [
+                    "application/vnd.oci.image.index.v1+json",
+                    "application/vnd.docker.distribution.manifest.list.v2+json",
+                    "application/vnd.oci.image.manifest.v1+json",
+                    "application/vnd.docker.distribution.manifest.v2+json",
+                ]
+            ),
+        },
+        timeout=30,
+    )
+    manifest_response.raise_for_status()
+    digest = manifest_response.headers.get("Docker-Content-Digest")
+    if not digest:
+        digest = "sha256:" + hashlib.sha256(manifest_response.content).hexdigest()
+    return f"{base_uri}@{digest}"
+
+
 # ═══════════════════════════════════════════════════════════════
 # Commands
 # ═══════════════════════════════════════════════════════════════
@@ -164,6 +233,10 @@ def cmd_deploy(args):
     email = args.email or prompt("CloudMR email", cfg.get("email"))
     password = args.password or prompt("CloudMR password", secret=True)
     api_key = args.api_key or cfg.get("api_key") or f"mro-{uuid.uuid4().hex[:16]}"
+    requested_image = getattr(args, "image_uri", None) or ECR_IMAGE
+    print("  Resolving immutable compute image...")
+    image_uri = resolve_public_image_digest(requested_image)
+    print(f"  Image: {image_uri}")
 
     # Login to Brain
     print(f"\n{color('[1/5]', 'bold')} Logging in to CloudMR Brain...")
@@ -213,7 +286,7 @@ def cmd_deploy(args):
         {"ParameterKey": "SubnetId1", "ParameterValue": subnet1},
         {"ParameterKey": "SubnetId2", "ParameterValue": subnet2},
         {"ParameterKey": "WorkerApiKey", "ParameterValue": api_key},
-        {"ParameterKey": "WorkerImageUri", "ParameterValue": ECR_IMAGE},
+        {"ParameterKey": "WorkerImageUri", "ParameterValue": image_uri},
         {"ParameterKey": "BrainApiUrl", "ParameterValue": BRAIN_API_URL},
         {"ParameterKey": "BrainToken", "ParameterValue": token},
     ]
@@ -282,7 +355,74 @@ def cmd_deploy(args):
     # Save config for next time
     save_config(profile=profile, region=region, email=email,
                 alias=args.alias or f"Cloud Worker ({profile})",
-                endpoint=endpoint, api_key=api_key)
+                endpoint=endpoint, api_key=api_key, image_uri=image_uri)
+
+
+def cmd_update(args):
+    """Apply the current worker template and pin the newest public image."""
+    print(color("\n  Update Mode 2 Worker\n", "bold"))
+    cfg = load_config()
+    profile = args.profile or cfg.get("profile", os.environ.get("AWS_PROFILE", "default"))
+    region = args.region or cfg.get("region", DEFAULT_REGION)
+    session = get_session(profile, region)
+    cf = session.client("cloudformation")
+
+    status, _outputs = get_stack_outputs(session)
+    if not status:
+        print(color("  Stack not found. Run 'deploy' first.", "red"))
+        return
+
+    requested_image = getattr(args, "image_uri", None) or ECR_IMAGE
+    print(f"  Resolving {requested_image}...")
+    image_uri = resolve_public_image_digest(requested_image)
+    print(f"  Pinned image: {image_uri}")
+
+    with open(TEMPLATE_PATH) as template_file:
+        template_body = template_file.read()
+
+    parameters = [
+        {"ParameterKey": name, "UsePreviousValue": True}
+        for name in (
+            "VpcId",
+            "SubnetId1",
+            "SubnetId2",
+            "WorkerApiKey",
+            "BrainApiUrl",
+            "BrainToken",
+        )
+    ]
+    parameters.append(
+        {"ParameterKey": "WorkerImageUri", "ParameterValue": image_uri}
+    )
+
+    try:
+        cf.update_stack(
+            StackName=STACK_NAME,
+            TemplateBody=template_body,
+            Parameters=parameters,
+            Capabilities=["CAPABILITY_IAM"],
+        )
+    except Exception as error:
+        if "No updates are to be performed" in str(error):
+            print(color("  Already up to date.", "green"))
+            return
+        raise
+
+    print("  Applying infrastructure and image update...")
+    cf.get_waiter("stack_update_complete").wait(
+        StackName=STACK_NAME,
+        WaiterConfig={"Delay": 10, "MaxAttempts": 60},
+    )
+    save_config(
+        profile=profile,
+        region=region,
+        email=cfg.get("email"),
+        alias=cfg.get("alias"),
+        endpoint=cfg.get("endpoint"),
+        api_key=cfg.get("api_key"),
+        image_uri=image_uri,
+    )
+    print(color("  Update complete. New tasks will use the pinned image.", "green"))
 
 
 def cmd_status(args):
@@ -496,6 +636,20 @@ def cmd_teardown(args):
     # Delete the CloudFormation stack
     print("  Deleting CloudFormation stack...")
     cf = session.client("cloudformation")
+
+    # CloudFormation cannot delete a non-empty S3 bucket. Job payloads normally
+    # expire after one day, but teardown must also work immediately after a job.
+    try:
+        resource = cf.describe_stack_resource(
+            StackName=STACK_NAME, LogicalResourceId="JobPayloadBucket"
+        )["StackResourceDetail"]
+        job_bucket_name = resource.get("PhysicalResourceId")
+        if job_bucket_name:
+            session.resource("s3").Bucket(job_bucket_name).objects.delete()
+            print(f"  Cleared staged job payloads: {job_bucket_name}")
+    except Exception as e:
+        print(color(f"  Warning: could not clear job payload bucket: {e}", "yellow"))
+
     cf.delete_stack(StackName=STACK_NAME)
 
     print("  Waiting for deletion...")
@@ -521,6 +675,7 @@ def main():
         epilog="""
 Commands:
   deploy    Deploy the worker stack to your AWS account
+  update    Apply fixes and pin the newest compute image
   status    Check worker health and running tasks
   logs      View computation logs
   costs     Show cost estimates
@@ -530,7 +685,7 @@ GUI mode:
   python manage.py --gui     Opens a graphical interface (no CLI knowledge needed)
         """,
     )
-    parser.add_argument("command", nargs="?", choices=["deploy", "status", "logs", "costs", "teardown"],
+    parser.add_argument("command", nargs="?", choices=["deploy", "update", "status", "logs", "costs", "teardown"],
                         help="Command to run (optional if --gui)")
     parser.add_argument("--gui", "-g", action="store_true", help="Open graphical interface")
     parser.add_argument("--profile", "-p", help="AWS CLI profile")
@@ -539,6 +694,10 @@ GUI mode:
     parser.add_argument("--password", help="CloudMR password (for deploy)")
     parser.add_argument("--api-key", help="Worker API key (for deploy)")
     parser.add_argument("--alias", help="Worker alias (for deploy)")
+    parser.add_argument(
+        "--image-uri",
+        help="Public ECR image tag or digest (default: current latest)",
+    )
     parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmations")
     parser.add_argument("--follow", "-f", action="store_true", help="Follow logs in real-time")
     parser.add_argument("--minutes", "-m", type=int, default=30, help="Minutes of logs to show (default: 30)")
@@ -551,6 +710,7 @@ GUI mode:
 
     commands = {
         "deploy": cmd_deploy,
+        "update": cmd_update,
         "status": cmd_status,
         "logs": cmd_logs,
         "costs": cmd_costs,
@@ -660,6 +820,7 @@ def run_gui():
         ns.password = var_password.get() or None
         ns.api_key = var_api_key.get() or None
         ns.alias = var_alias.get() or None
+        ns.image_uri = None
         ns.yes = True
         ns.follow = False
         ns.minutes = 60

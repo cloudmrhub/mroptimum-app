@@ -8,6 +8,7 @@ on:
     paths:
       - 'template.yaml'
       - 'calculation/template.yaml'
+      - 'calculation/debug_bundle/**'
       - '.github/workflows/deploy-and-register.yml'
       - 'calculation/src/handler.py'  # Handler changes need re-deploy but not rebuild
   # Automatically redeploy whenever new images are pushed to ECR
@@ -41,6 +42,7 @@ env:
   CLOUDMR_BRAIN_STACK: cloudmrhub-brain
   LAMBDA_REPO: mroptimum-lambda
   FARGATE_REPO: mroptimum-fargate
+  PUBLIC_FARGATE_REPO: public.ecr.aws/r2m7t0q6/cloudmrhub/mroptimum-fargate
   APP_NAME: "MR Optimum"
 
 permissions:
@@ -111,6 +113,19 @@ jobs:
           docker push ${FARGATE_URI}:latest
 
           echo "✓ Images rebuilt and pushed"
+
+      - name: Push the same Fargate build to Public ECR
+        if: github.ref_name == 'main'
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          aws ecr-public get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin public.ecr.aws
+          docker tag ${FARGATE_REPO}:${IMAGE_TAG} ${PUBLIC_FARGATE_REPO}:${IMAGE_TAG}
+          docker tag ${FARGATE_REPO}:${IMAGE_TAG} ${PUBLIC_FARGATE_REPO}:latest
+          docker push ${PUBLIC_FARGATE_REPO}:${IMAGE_TAG}
+          docker push ${PUBLIC_FARGATE_REPO}:latest
 
   # ==========================================================================
   # JOB 1: Deploy SAM Stack (uses :latest images)

@@ -64,10 +64,9 @@ mroptimum-tools  (mrotools Python package — inside Docker image)
 
 ### Mode 2 — User-Owned
 - **Compute runs in the user's own AWS account**
-- User deploys `mroptimum-app` into their account using `calculation/template.yaml`
+- User deploys the zero-idle worker using `worker/manage.py` and `worker/deploy/template.yaml`
 - User registers their computing unit with cloudmr-brain
-- All S3 data stays in the user's account
-- Script: `scripts/deploy-mode1-local.sh` / `deploy-and-register-mode1.sh`
+- The dispatcher stages each job payload in a short-lived S3 object in the user's account
 - Uses the **public ECR image** (no cross-account IAM needed)
 
 ### Local / SLURM / Other Clouds
@@ -97,9 +96,10 @@ apptainer exec mroptimum-v3.1.0.sif python -m mrotools.snr -j job.json -o out/
 #   image: public.ecr.aws/r2m7t0q6/cloudmrhub/mroptimum-fargate:v3.1.0
 ```
 
-> **Mode 2 update procedure**: `build-images.yml` pushes to public ECR on every
-> build with a versioned tag. Mode 2 users re-run their deployment script pointing
-> to the new tag to update. No AWS credentials needed to pull the image.
+> **Mode 2 update procedure**: `build-images.yml` pushes the same Fargate
+> manifest used by Mode 1 to public ECR. Run
+> `python worker/manage.py update --profile <profile>`. The manager resolves the
+> public tag to an immutable digest before creating a new task definition.
 
 ---
 
@@ -108,8 +108,8 @@ apptainer exec mroptimum-v3.1.0.sif python -m mrotools.snr -j job.json -o out/
 ```
 1. User configures job in mroptimum-webgui
       ↓ POST /pipeline  (JSON payload with signal/noise/faCorrection refs)
-2. cloudmr-brain creates a Pipeline record in DynamoDB
-      ↓ triggers Step Functions execution
+2. cloudmr-brain creates a Pipeline record and stages the full job JSON in S3
+      ↓ passes only a small bucket/key reference to compute
 3. Step Functions invokes mroptimum-app Lambda (orchestrator)
       ↓ passes job payload
 4. Lambda spawns Fargate task (for heavy compute) OR runs inline

@@ -40,6 +40,16 @@ python worker/manage.py deploy \
   --alias "My Lab Worker"
 ```
 
+To apply worker fixes and move an existing Mode 2 stack to the newest image:
+
+```bash
+python worker/manage.py update --profile eros
+```
+
+The manager resolves the public `latest` tag to an immutable `sha256` digest
+before updating CloudFormation. This both forces a new ECS task definition and
+prevents different jobs from silently pulling different builds.
+
 ### After deploying
 
 Open the CloudMR web app, submit a job, and select your Mode 2 worker from the computing unit dropdown. The job runs on your infrastructure.

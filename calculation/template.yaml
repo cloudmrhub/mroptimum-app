@@ -309,8 +309,10 @@ Resources:
           Essential: true
           Environment:
             # These get overridden by Step Functions at runtime
-            - Name: TASK_JSON
-              Value: ""  
+            - Name: JOB_BUCKET
+              Value: ""
+            - Name: JOB_KEY
+              Value: ""
             - Name: ResultsBucketName
               Value: !Ref ResultsBucketPName
             - Name: FailedBucketName
@@ -360,10 +362,23 @@ Resources:
                     {
                       "Variable": "$.platform.useFargate",
                       "BooleanEquals": true,
-                      "Next": "RunViaFargate"
+                      "Next": "HasJobReference"
                     }
                   ],
                   "Default": "RunViaLambda"
+                },
+                "HasJobReference": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "And": [
+                        {"Variable": "$.job_ref.bucket", "IsPresent": true},
+                        {"Variable": "$.job_ref.key", "IsPresent": true}
+                      ],
+                      "Next": "RunViaFargate"
+                    }
+                  ],
+                  "Default": "RunViaFargateLegacy"
                 },
                 "RunViaLambda": {
                   "Type": "Task",
@@ -372,7 +387,7 @@ Resources:
                     {
                       "ErrorEquals": ["States.Timeout", "Lambda.Unknown", "Lambda.ResourceNotFoundException", "Lambda.TooManyRequestsException"],
                       "ResultPath": "$.lambdaError",
-                      "Next": "RunViaFargate",
+                      "Next": "HasJobReference",
                       "Comment": "Lambda timed out (15 min limit) — retry on Fargate"
                     },
                     {
@@ -386,6 +401,55 @@ Resources:
                 },
                 "RunViaFargate": {
                   "Type": "Task",
+                  "Resource": "arn:aws:states:::ecs:runTask.sync",
+                  "TimeoutSeconds": 18000,
+                  "Parameters": {
+                    "LaunchType": "FARGATE",
+                    "Cluster": "${ECSCluster}",
+                    "TaskDefinition": "${RunJobTaskDefinitionArn}",
+                    "NetworkConfiguration": {
+                      "AwsvpcConfiguration": {
+                        "Subnets": ${SubnetList},
+                        "SecurityGroups": ${SecurityGroupList},
+                        "AssignPublicIp": "ENABLED"
+                      }
+                    },
+                    "Overrides": {
+                      "ContainerOverrides": [
+                        {
+                          "Name": "run-job-container",
+                          "Environment": [
+                            {
+                              "Name": "JOB_BUCKET",
+                              "Value.$": "$.job_ref.bucket"
+                            },
+                            {
+                              "Name": "JOB_KEY",
+                              "Value.$": "$.job_ref.key"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "Catch": [
+                    {
+                      "ErrorEquals": ["States.Timeout"],
+                      "ResultPath": "$.fargateError",
+                      "Next": "NotifyFargateTimeout"
+                    },
+                    {
+                      "ErrorEquals": ["States.ALL"],
+                      "ResultPath": "$.computeError",
+                      "Next": "BuildDebugBundle",
+                      "Comment": "Fargate computation failed — build debug bundle"
+                    }
+                  ],
+                  "End": true
+                },
+                "RunViaFargateLegacy": {
+                  "Type": "Task",
+                  "Comment": "Backward-compatible fallback for jobs queued without job_ref",
                   "Resource": "arn:aws:states:::ecs:runTask.sync",
                   "TimeoutSeconds": 18000,
                   "Parameters": {
@@ -422,8 +486,7 @@ Resources:
                     {
                       "ErrorEquals": ["States.ALL"],
                       "ResultPath": "$.computeError",
-                      "Next": "BuildDebugBundle",
-                      "Comment": "Fargate computation failed — build debug bundle"
+                      "Next": "BuildDebugBundle"
                     }
                   ],
                   "End": true
