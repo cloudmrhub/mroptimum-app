@@ -281,6 +281,24 @@ def do_process(event, context=None, s3=None):
             # If "signal" is not present, we skip this step
             logger.write("no signal options found, skipping download")
 
+        # 6b) Download FA map if FA correction is requested
+        #     Schema: task_info["options"]["correction"]["faCorrection"]["options"]
+        fa_map_path = None
+        correction_opts = task_info.get("options", {}).get("correction", {})
+        if correction_opts.get("useCorrection") and correction_opts.get("faCorrection"):
+            fa_opts = correction_opts["faCorrection"].get("options", {})
+            if fa_opts.get("type") == "s3":
+                download_from_s3(fa_opts, s3)
+                logger.write("FA map downloaded from S3")
+                fa_map_path = fa_opts["filename"]
+            elif fa_opts.get("type") == "local":
+                fa_map_path = fa_opts.get("filename")
+                logger.write(f"FA map is local: {fa_map_path}")
+            else:
+                logger.write("WARNING: faCorrection present but no recognised file type; skipping FA normalization")
+        else:
+            logger.write("no FA correction requested")
+
         # 7) Write updated T → /tmp/<random>.json for mrotools.snr
         task_info["token"] = token
         task_info["pipelineid"] = pipelineid
@@ -320,14 +338,16 @@ def do_process(event, context=None, s3=None):
                 "Noise or signal not available, cannot proceed with computation"
             )
 
+        fa_map_arg = f"--fa-map {fa_map_path}" if fa_map_path else ""
         cmd = (
             f"python -m mrotools.snr "
             f"-j {mrotools_input_json_file} "
             f"-o {out_dir} "
             f"{parallel_arg} {savematlab} {savecoils} {savegfactor} "
             f"--no-verbose "
-            f"-l {log_path}"
-        )
+            f"-l {log_path} "
+            f"{fa_map_arg}"
+        ).strip()
         BashItObject.setCommand(cmd)
         logger.write(f"running command: {cmd}")
         BashItObject.run()
