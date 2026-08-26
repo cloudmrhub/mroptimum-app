@@ -26,7 +26,7 @@ Parameters:
   WorkerImageUri:
     Type: String
     Description: Docker image URI for the compute task
-    Default: "469266894233.dkr.ecr.us-east-1.amazonaws.com/mroptimum-fargate:latest"
+    Default: "public.ecr.aws/r2m7t0q6/cloudmrhub/mroptimum-fargate:latest"
 
   BrainApiUrl:
     Type: String

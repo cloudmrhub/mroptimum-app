@@ -42,7 +42,7 @@ TEMPLATE_PATH = Path(__file__).parent / "deploy" / "template.yaml"
 CONFIG_DIR = Path.home() / ".mroptimum"
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 BRAIN_API_URL = "https://f41j488v7j.execute-api.us-east-1.amazonaws.com/Prod"
-ECR_IMAGE = "469266894233.dkr.ecr.us-east-1.amazonaws.com/mroptimum-fargate:latest"
+ECR_IMAGE = "public.ecr.aws/r2m7t0q6/cloudmrhub/mroptimum-fargate:latest"
 DEFAULT_REGION = "us-east-1"
 
 

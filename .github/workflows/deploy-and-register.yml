@@ -18,6 +18,10 @@ on:
     branches:
       - main
       - dev
+
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
         description: 'Force rebuild images even if no calculation/ changes'
         required: false
         default: false
@@ -31,7 +35,9 @@ on:
 env:
   AWS_REGION: us-east-1
   # main → prod stack (mroptimum-app-test), dev → dev stack (mroptimum-app-dev)
-  STACK_NAME: ${{ github.ref == 'refs/heads/main' && 'mroptimum-app-test' || 'mroptimum-app-dev' }}
+  # workflow_run executes from the default branch, so use the upstream build's
+  # branch for that event instead of github.ref.
+  STACK_NAME: ${{ ((github.event_name == 'workflow_run' && github.event.workflow_run.head_branch) || github.ref_name) == 'main' && 'mroptimum-app-test' || 'mroptimum-app-dev' }}
   CLOUDMR_BRAIN_STACK: cloudmrhub-brain
   LAMBDA_REPO: mroptimum-lambda
   FARGATE_REPO: mroptimum-fargate
@@ -53,6 +59,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_sha) || github.sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -127,6 +135,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_sha) || github.sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

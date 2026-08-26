@@ -66,8 +66,11 @@ def download_from_s3(file_info, s3=None, pt="/tmp"):
     file_info["type"] = "local".
     """
     filename = file_info["filename"]
-    # Create random local path
-    local_path = pick_random_path(suffix=Path(filename).suffix)
+    # Preserve the complete source name so compound extensions such as
+    # ``.nii.gz`` remain recognizable to image readers such as SimpleITK.
+    # Prefixing with a UUID avoids collisions while Path.name prevents an
+    # incoming filename from escaping the requested temporary directory.
+    local_path = Path(pt) / f"{uuid.uuid4().hex}_{Path(filename).name}"
 
     if "presigned_url" in file_info:
         logger.write("Downloading from presigned URL " + file_info["key"])
