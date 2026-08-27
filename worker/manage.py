@@ -296,14 +296,14 @@ def cmd_deploy(args):
             StackName=STACK_NAME,
             TemplateBody=template_body,
             Parameters=params,
-            Capabilities=["CAPABILITY_IAM"],
+            Capabilities=["CAPABILITY_IAM","CAPABILITY_AUTO_EXPAND"],
         )
     except cf.exceptions.AlreadyExistsException:
         cf.update_stack(
             StackName=STACK_NAME,
             TemplateBody=template_body,
             Parameters=params,
-            Capabilities=["CAPABILITY_IAM"],
+            Capabilities=["CAPABILITY_IAM","CAPABILITY_AUTO_EXPAND"],
         )
 
     # Wait for completion
@@ -400,7 +400,7 @@ def cmd_update(args):
             StackName=STACK_NAME,
             TemplateBody=template_body,
             Parameters=parameters,
-            Capabilities=["CAPABILITY_IAM"],
+            Capabilities=["CAPABILITY_IAM","CAPABILITY_AUTO_EXPAND"],
         )
     except Exception as error:
         if "No updates are to be performed" in str(error):

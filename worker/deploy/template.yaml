@@ -120,9 +120,14 @@ Resources:
                 }
 
             # --- Auth ---
-            headers = event.get("headers") or {}
-            # API Gateway lowercases headers
-            request_key = headers.get("x-api-key") or headers.get("X-API-Key") or ""
+            # HTTP header names are case-insensitive, but API Gateway can
+            # preserve/title-case them (for example X-Api-Key). Normalize once
+            # instead of depending on a particular client or gateway casing.
+            headers = {
+                str(name).lower(): value
+                for name, value in (event.get("headers") or {}).items()
+            }
+            request_key = headers.get("x-api-key", "")
             if API_KEY and request_key != API_KEY:
                 return {
                     "statusCode": 401,

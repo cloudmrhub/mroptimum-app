@@ -110,9 +110,10 @@ apptainer exec mroptimum-v3.1.0.sif python -m mrotools.snr -j job.json -o out/
       ↓ POST /pipeline  (JSON payload with signal/noise/faCorrection refs)
 2. cloudmr-brain creates a Pipeline record and stages the full job JSON in S3
       ↓ passes only a small bucket/key reference to compute
-3. Step Functions invokes mroptimum-app Lambda (orchestrator)
-      ↓ passes job payload
-4. Lambda spawns Fargate task (for heavy compute) OR runs inline
+3a. Mode 1: Step Functions invokes the managed Lambda/Fargate stack
+3b. Mode 2: Brain POSTs to the user's worker dispatcher, which stages the job
+      in the user's S3 bucket and launches an ECS Fargate task
+4. The selected compute container loads the staged job reference
       ↓ mroptimum-app/calculation/src/app.py executes:
         a. Downloads signal .dat, noise .dat, FA NIfTI from S3 → /tmp/
         b. Resolves faCorrection file if present (app.py lines ~285–298)

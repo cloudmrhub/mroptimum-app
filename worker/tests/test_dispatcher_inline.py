@@ -39,6 +39,40 @@ class FakeS3Client:
 
 
 class DispatcherTests(unittest.TestCase):
+    def test_api_key_authentication_is_case_insensitive(self):
+        ecs = FakeEcsClient()
+        s3 = FakeS3Client()
+        fake_boto3 = types.ModuleType("boto3")
+        fake_boto3.client = lambda name: ecs if name == "ecs" else s3
+        environment = {
+            "CLUSTER_NAME": "test-cluster",
+            "TASK_DEFINITION": "test-task",
+            "JOB_PAYLOAD_BUCKET": "job-payload-bucket",
+            "SUBNETS": '["subnet-1","subnet-2"]',
+            "SECURITY_GROUP": "sg-1",
+            "WORKER_API_KEY": "correct-key",
+        }
+
+        namespace = {}
+        with patch.dict(sys.modules, {"boto3": fake_boto3}), patch.dict(
+            os.environ, environment, clear=True
+        ):
+            exec(load_dispatcher_source(), namespace)
+            response = namespace["handler"](
+                {
+                    "httpMethod": "POST",
+                    "headers": {"X-Api-Key": "correct-key"},
+                    "body": "{invalid-json",
+                },
+                None,
+            )
+
+        # Authentication passed; parsing deliberately invalid JSON is the next
+        # check. The old implementation returned 401 for this header casing.
+        self.assertEqual(response["statusCode"], 400)
+        self.assertEqual(ecs.run_calls, [])
+        self.assertEqual(s3.put_calls, [])
+
     def test_large_job_is_staged_and_ecs_override_stays_small(self):
         ecs = FakeEcsClient()
         s3 = FakeS3Client()
