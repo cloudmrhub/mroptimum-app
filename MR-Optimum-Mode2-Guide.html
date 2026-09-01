@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MR Optimum Mode 2 — Setup and Teardown</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #5b667a;
+      --blue: #175cd3;
+      --blue-dark: #103f91;
+      --blue-soft: #eef4ff;
+      --green: #067647;
+      --green-soft: #ecfdf3;
+      --amber: #b54708;
+      --amber-soft: #fffaeb;
+      --border: #d9e0ea;
+      --surface: #ffffff;
+      --page: #f5f7fb;
+      --code: #101828;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.62;
+    }
+    header {
+      background: linear-gradient(135deg, #102a56, #175cd3);
+      color: white;
+      padding: 3.5rem 1.25rem 3rem;
+    }
+    header .inner, main { max-width: 980px; margin: auto; }
+    h1 { margin: 0 0 .65rem; font-size: clamp(2rem, 5vw, 3.35rem); line-height: 1.08; }
+    header p { max-width: 760px; margin: 0; font-size: 1.1rem; opacity: .92; }
+    main { padding: 2rem 1.25rem 4rem; }
+    nav, section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 18px rgba(16, 24, 40, .05);
+      margin-bottom: 1.2rem;
+      padding: 1.35rem 1.5rem;
+    }
+    nav a {
+      color: var(--blue);
+      display: inline-block;
+      margin: .25rem 1rem .25rem 0;
+      text-decoration: none;
+      font-weight: 650;
+    }
+    h2 { margin-top: 0; color: var(--blue-dark); font-size: 1.45rem; }
+    h3 { color: #344054; margin-bottom: .5rem; }
+    code {
+      background: #f2f4f7;
+      border-radius: 4px;
+      color: #344054;
+      padding: .12rem .3rem;
+    }
+    pre {
+      background: var(--code);
+      border-radius: 10px;
+      color: #f5f8ff;
+      overflow-x: auto;
+      padding: 1rem 1.1rem;
+      white-space: pre;
+    }
+    pre code { background: transparent; color: inherit; padding: 0; }
+    table {
+      border-collapse: collapse;
+      display: block;
+      overflow-x: auto;
+      width: 100%;
+    }
+    th, td { border-bottom: 1px solid var(--border); padding: .72rem; text-align: left; vertical-align: top; }
+    th { background: var(--blue-soft); color: var(--blue-dark); }
+    .callout {
+      border-left: 5px solid var(--blue);
+      background: var(--blue-soft);
+      border-radius: 8px;
+      padding: .9rem 1rem;
+      margin: 1rem 0;
+    }
+    .warning { background: var(--amber-soft); border-left-color: var(--amber); }
+    .success { background: var(--green-soft); border-left-color: var(--green); }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: .65rem;
+      list-style: none;
+      padding: 0;
+    }
+    .flow li {
+      align-items: center;
+      background: var(--blue-soft);
+      border: 1px solid #c7d7fe;
+      border-radius: 10px;
+      display: flex;
+      font-weight: 650;
+      min-height: 75px;
+      padding: .8rem;
+    }
+    .os-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .8rem; }
+    .os-card { border: 1px solid var(--border); border-radius: 10px; padding: .8rem 1rem; }
+    li + li { margin-top: .3rem; }
+    footer { color: var(--muted); font-size: .9rem; text-align: center; padding: 1rem; }
+    @media print {
+      body { background: white; }
+      header { background: white; color: black; padding: 1rem 0; }
+      main { max-width: none; padding: 0; }
+      nav { display: none; }
+      section { box-shadow: none; break-inside: avoid; }
+      a { color: black; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="inner">
+      <h1>MR Optimum Mode 2</h1>
+      <p>A simple setup, deployment, verification, and teardown guide for Windows, macOS, and Linux.</p>
+    </div>
+  </header>
+  <main>
+    <nav aria-label="Page sections">
+      <a href="#requirements">Requirements</a>
+      <a href="#iam">IAM setup</a>
+      <a href="#profile">AWS profile</a>
+      <a href="#install">Install</a>
+      <a href="#deploy">Deploy</a>
+      <a href="#teardown">Teardown</a>
+      <a href="#remember">Remember</a>
+    </nav>
+
+    <section>
+      <h2>Workflow at a glance</h2>
+      <ol class="flow">
+        <li>Confirm CloudMRHub login</li>
+        <li>Create IAM user</li>
+        <li>Create AWS access key</li>
+        <li>Configure profile</li>
+        <li>Install manager</li>
+        <li>Deploy and verify</li>
+        <li>Teardown when finished</li>
+      </ol>
+      <div class="callout warning">
+        AWS console credentials and AWS CLI access keys are separate. A console password does not create an Access Key ID.
+      </div>
+    </section>
+
+    <section id="requirements">
+      <h2>1. Requirements</h2>
+      <p>Every user needs a working CloudMRHub account, an AWS account, an approved IAM deployment user, Git, Python 3.9+, AWS CLI v2, internet access, and an AWS VPC subnet with outbound internet connectivity. Docker is not required locally.</p>
+      <div class="os-grid">
+        <div class="os-card"><h3>Windows</h3><p>Windows 10/11, PowerShell, Python through <code>py</code> or <code>python</code>.</p></div>
+        <div class="os-card"><h3>macOS</h3><p>Terminal, <code>python3</code>, Git, and AWS CLI v2.</p></div>
+        <div class="os-card"><h3>Linux</h3><p>Bash or another shell, Python 3 with <code>venv</code> and <code>pip</code>, Git, and AWS CLI v2.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>2. Know which credential goes where</h2>
+      <table>
+        <thead><tr><th>Credential</th><th>Used where</th><th>Handling</th></tr></thead>
+        <tbody>
+          <tr><td>CloudMRHub email</td><td>Deployment command and web login</td><td>Remember it</td></tr>
+          <tr><td>CloudMRHub password</td><td>Hidden deploy/teardown prompt</td><td>Use a password manager</td></tr>
+          <tr><td>AWS console login</td><td>AWS website only</td><td>Store securely</td></tr>
+          <tr><td>Access Key ID + Secret Access Key</td><td><code>aws configure</code></td><td>Save securely; never share</td></tr>
+          <tr><td>Worker API key</td><td>Generated automatically</td><td>Protect the local config</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="iam">
+      <h2>3. Create the IAM user and access key</h2>
+      <ol>
+        <li>Open <strong>AWS Console → IAM → Users → Create user</strong>.</li>
+        <li>Create a dedicated user such as <code>mroptimum-mode2-user</code>.</li>
+        <li>Assign the administrator-approved Mode 2 deployment permissions.</li>
+        <li>Open the user's <strong>Security credentials</strong>.</li>
+        <li>Under <strong>Access keys</strong>, select <strong>Create access key</strong>.</li>
+        <li>Choose <strong>Command Line Interface (CLI)</strong>.</li>
+        <li>Create the key and securely download the CSV.</li>
+      </ol>
+      <p>The user needs CloudFormation, IAM role/pass-role, EC2 discovery/security-group, Lambda, API Gateway, ECS/Fargate, S3, CloudWatch Logs, EventBridge, and STS identity permissions.</p>
+      <div class="callout warning">Never use AWS root credentials. The Secret Access Key is displayed only once and must never be placed in GitHub, CloudMRHub, email, or chat.</div>
+    </section>
+
+    <section id="profile">
+      <h2>4. Create and verify the AWS CLI profile</h2>
+      <pre><code>aws configure --profile mroptimum</code></pre>
+      <pre><code>AWS Access Key ID: &lt;ACCESS_KEY_ID&gt;
+AWS Secret Access Key: &lt;SECRET_ACCESS_KEY&gt;
+Default region name: us-east-1
+Default output format: json</code></pre>
+      <p>Verify the selected AWS identity:</p>
+      <pre><code>aws sts get-caller-identity --profile mroptimum</code></pre>
+    </section>
+
+    <section id="install">
+      <h2>5. Install MR Optimum</h2>
+      <h3>Windows PowerShell</h3>
+      <pre><code>git clone https://github.com/cloudmrhub/mroptimum-app.git
+Set-Location mroptimum-app
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install boto3 requests</code></pre>
+      <h3>macOS or Linux</h3>
+      <pre><code>git clone https://github.com/cloudmrhub/mroptimum-app.git
+cd mroptimum-app
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install boto3 requests</code></pre>
+    </section>
+
+    <section id="deploy">
+      <h2>6. Deploy Mode 2</h2>
+      <h3>Windows</h3>
+      <pre><code>python -X utf8 worker/manage.py deploy --profile mroptimum --email &lt;CLOUDMR_EMAIL&gt; --alias "&lt;WORKER_NAME&gt;"</code></pre>
+      <h3>macOS or Linux</h3>
+      <pre><code>python worker/manage.py deploy --profile mroptimum --email &lt;CLOUDMR_EMAIL&gt; --alias "&lt;WORKER_NAME&gt;"</code></pre>
+      <p>Press Enter to accept <code>us-east-1</code>. At <strong>CloudMR password</strong>, enter the existing CloudMRHub password—not an AWS password or access key.</p>
+      <div class="callout">Windows uses <code>-X utf8</code> to prevent the current manager's template-reading <code>UnicodeDecodeError</code>.</div>
+      <h3>Verify</h3>
+      <pre><code># Windows
+python -X utf8 worker/manage.py status --profile mroptimum
+
+# macOS/Linux
+python worker/manage.py status --profile mroptimum</code></pre>
+      <div class="callout success">A working deployment reports <code>CREATE_COMPLETE</code>, an API endpoint, and <code>Health: OK</code>. Refresh MR Optimum and select the new worker alias.</div>
+    </section>
+
+    <section>
+      <h2>7. Logs, costs, and updates</h2>
+      <p>Add <code>-X utf8</code> after <code>python</code> on Windows.</p>
+      <pre><code>python worker/manage.py logs --profile mroptimum --follow
+python worker/manage.py costs --profile mroptimum
+python worker/manage.py update --profile mroptimum</code></pre>
+    </section>
+
+    <section id="teardown">
+      <h2>8. Tear down Mode 2</h2>
+      <p>Always use the manager. It deregisters the computing unit from CloudMRHub, empties temporary payload storage, deletes the AWS stack, and removes the local Mode 2 configuration.</p>
+      <h3>Windows</h3>
+      <pre><code>python -X utf8 worker/manage.py teardown</code></pre>
+      <h3>macOS or Linux</h3>
+      <pre><code>python worker/manage.py teardown</code></pre>
+      <p>Confirm with <code>y</code> and enter the CloudMRHub password. Refresh the web application after successful deregistration.</p>
+      <div class="callout warning">Do not delete the CloudFormation stack directly unless you are prepared to remove the stale computing-unit entry manually.</div>
+    </section>
+
+    <section id="remember">
+      <h2>9. Save and remember</h2>
+      <ul>
+        <li>The AWS profile is named <code>mroptimum</code>.</li>
+        <li>AWS CLI credentials are stored in <code>%USERPROFILE%\.aws\credentials</code> on Windows or <code>~/.aws/credentials</code> on macOS/Linux.</li>
+        <li>The worker configuration is stored in <code>~/.mroptimum/config.toml</code>.</li>
+        <li>Protect the CloudMRHub password, AWS access keys, and generated worker API key.</li>
+        <li>Rotate or delete unused IAM access keys.</li>
+        <li>Use the manager's teardown command so AWS deletion and CloudMRHub deregistration happen together.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Troubleshooting</h2>
+      <ul>
+        <li><strong>Access key age is blank:</strong> create an access key under the IAM user's Security credentials.</li>
+        <li><strong>Unable to locate credentials:</strong> rerun <code>aws configure --profile mroptimum</code>.</li>
+        <li><strong>AccessDenied:</strong> the IAM deployment permissions are incomplete.</li>
+        <li><strong>UnicodeDecodeError on Windows:</strong> use <code>python -X utf8</code>.</li>
+        <li><strong>Worker remains visible:</strong> confirm teardown reported successful deregistration, then refresh MR Optimum.</li>
+      </ul>
+    </section>
+  </main>
+  <footer>
+    MR Optimum Mode 2 guide · <a href="https://github.com/cloudmrhub/mroptimum-app/tree/main/worker">Current worker source</a>
+  </footer>
+</body>
+</html>
