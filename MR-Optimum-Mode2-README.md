@@ -1,6 +1,6 @@
 # MR Optimum Mode 2 — Setup and Teardown
 
-This guide explains how a new CloudMRHub user can deploy an MR Optimum **Mode 2** worker in their own AWS account.
+This guide explains how a Cloud MR user can deploy a MR Optimum **Mode 2** worker in their own AWS account.
 
 Mode 2 creates an API Gateway endpoint, a dispatcher Lambda, and on-demand Fargate compute in the user's AWS account. The Fargate task runs only when a job is submitted. Docker is not required locally because the deployment uses the public MR Optimum container image.
 
